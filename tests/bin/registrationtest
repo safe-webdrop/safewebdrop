@@ -1,0 +1,122 @@
+#!/usr/bin/bash
+
+##############################################################################
+# This file is part of the CRYPTO BONE
+# File     : registrationtest  (client)
+# Version  : 2.0 (ALL-IN-ONE)
+# License  : BSD-3-Clause
+# Date     : 20 April 2025
+# Contact  : Please send enquiries and bug-reports to innovation@senderek.ie
+#
+# Copyright (c) 2015-2025
+#	Ralf Senderek, Ireland.  All rights reserved. (https://senderek.ie)
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+# 3. All advertising materials mentioning features or use of this software
+#    must display the following acknowledgement:
+#	   This product includes software developed by Ralf Senderek.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND  ANY EXPRESS OR 
+# IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE  IMPLIED WARRANTIES 
+# OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  
+# IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, 
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; 
+# OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) 
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
+# POSSIBILITY OF SUCH DAMAGE.
+##############################################################################
+
+# Parameter
+# $1 is ID name
+# $2 is SERVER name
+# $3 overwrites DEBUG
+
+#----------------------------------------------------#
+# load functions and global variables
+. ./test-functions
+
+if [[ -r ../safewebdrop.config ]] ; then
+   . ../safewebdrop.config
+fi
+
+# let parameters overwrite ID and HOST
+if (( $# >= 2 )) ; then
+    ID="$1"
+    HOST="$2"
+    if [[ $# -eq 3 ]] ; then
+         DEBUG="$3"
+    fi
+fi
+if [[ ${DEBUG} = "yes" ]] ; then
+    set -vx; exec 2>$0.trc
+    /usr/bin/echo "debugging is ON ..."
+fi
+
+/usr/bin/echo "***** safewebdrop *****"
+/usr/bin/echo "Register a new user ${ID} at ${HOST}"
+/usr/bin/echo "New RSA keys will be generated and will overwrite existing ones!"
+/usr/bin/echo "***** ----------- *****"
+/usr/bin/echo
+/usr/bin/echo "Debug = ${DEBUG}"
+/usr/bin/echo -n "continue? "
+read REPLY
+if [[ "${REPLY}x" != "yesx" ]] ; then
+    /usr/bin/echo "exiting, yes continues here"
+    /usr/bin/echo "usage: registrationtest ID HOST [[yes|no]] (overwrites config)"
+    exit 1
+fi    
+
+# check directory for ${ID}
+if [[ ! -d ../${ID} ]] ; then
+    /usr/bin/mkdir ../${ID}
+fi
+
+# PHASE 1: send NEW request
+
+CHALLENGE=$(curl https://${HOST}/cgi-bin/safewebdropregistration?${ID}\&REGISTRATION 2> /dev/null)
+/usr/bin/echo "SERVER -> I:  CHL=${CHALLENGE}  "
+
+# PHASE 2: 
+# remove old RSA private key
+/usr/bin/rm -rf ../${ID}/private.pem
+/usr/bin/rm -rf ../${ID}/public.pem
+
+# create a new RSA key pair secured under key PRIVSECRET
+./createRSA ${PRIVSECRET} ${ID}
+
+# generate a signed request
+SIG=""
+KEY="../${ID}/pubkey.pem"
+/usr/bin/rm -f ${REQ} ${REQ}.sig 
+/usr/bin/echo -n "${ID}:" > $REQ
+/usr/bin/echo -n "${CHALLENGE}:" >> $REQ
+# generate a hash of the request
+generate_requesthash
+
+# base64 encode the public key
+base64 --wrap=0 ${KEY} > ${KEY}.b64
+
+# and send it
+PUBKEY=$(/usr/bin/cat ${KEY}.b64)
+
+/usr/bin/echo "-----------"
+ls -l ../${ID}
+/usr/bin/echo -n "request: "
+cat ${REQ}
+/usr/bin/echo
+/usr/bin/echo "----end----"
+
+REQUEST=$(/usr/bin/cat ${REQ})
+RCODE=$(/usr/bin/curl https://${HOST}/cgi-bin/safewebdropregistration?${ID}\&${REQUEST}\&${SIG}\&${PUBKEY} 2> /dev/null)
+/usr/bin/echo "SERVER -> II: $ID: $(date +'%x %X'): REGCODE=${RCODE}, ${#RCODE} bytes received"
+
+exit 0

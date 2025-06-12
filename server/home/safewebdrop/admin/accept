@@ -1,0 +1,16 @@
+#!/usr/bin/bash
+
+if [ $# -eq 1 ] ; then
+    mkdir ../$1
+    chown apache ../$1
+    chmod 700 ../$1
+    cp $1.pubkey.pem ../$1/pubkey.pem
+
+    # do NOT change ownnership of the public key to apache, because the public key
+    # must only be readable for the web server UID
+    # if pubkey.pem is writable for root only, no rogue webserver code can overwrite it.
+
+    ls -l ../$1
+    ls -l ..
+    echo "done".
+fi

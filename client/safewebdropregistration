@@ -1,0 +1,115 @@
+#!/usr/bin/bash
+
+#***************************************************************************
+# This file is part of the CRYPTO BONE
+# File     : safewebdropregistration (client) 
+# Version  : 2.0 (ALL-IN-ONE)
+# License  : BSD-3-Clause
+# Date     : 16 Mar 2025
+# Contact  : Please send enquiries and bug-reports to innovation@senderek.ie
+#
+#
+# Copyright (c) 2015-2025
+#	Ralf Senderek, Ireland.  All rights reserved. (https://senderek.ie)
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+# 3. All advertising materials mentioning features or use of this software
+#    must display the following acknowledgement:
+#	   This product includes software developed by Ralf Senderek.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND  ANY EXPRESS OR 
+# IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE  IMPLIED WARRANTIES 
+# OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  
+# IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, 
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; 
+# OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) 
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
+# POSSIBILITY OF SUCH DAMAGE.
+#
+#****************************************************************************
+
+# load functions and global variables
+. /usr/lib/cryptobone/safewebdrop.header
+. ${CBHOME}/safewebdrop/bin/client-functions
+
+# no parameter !
+
+KEY=${CBHOME}/safewebdrop/pubkey.pem
+
+
+PASS=$(/usr/bin/echo "get-element webdropsecret" | /usr/bin/socat -t15 - UNIX-connect:$SOCK 2> /dev/null)
+HOST=$(/usr/bin/echo "get-element webdropserver" | /usr/bin/socat -t15 - UNIX-connect:$SOCK 2> /dev/null)
+ID=$(/usr/bin/echo "get-element webdropuser" | /usr/bin/socat -t15 - UNIX-connect:$SOCK 2> /dev/null)
+
+
+function sanitize_username {
+     R=$(/usr/bin/echo -n $1 | /usr/bin/tr -d '\\\n\t !	"§$%&/()=?`´#*+~;:,|^°_')
+     R=$(/usr/bin/echo -n $R | /usr/bin/cut -c-25)
+     /usr/bin/echo -n "$R"
+}
+
+function clean2 {
+     /usr/bin/rm -f ${MSG} 2>/dev/null
+}
+
+log "--- registration ---"
+
+CHALLENGE=""
+# check that the desired ID ID is valid
+NEWID=$(sanitize_username ${ID})
+ID=${NEWID}
+log "NEW ID ${ID}"
+
+if [[ ${PASS} ]] && [[ ${HOST} ]] && [[ ${ID} ]] ; then
+
+     # phase 1: send REGISTRATION request
+     CHALLENGE=$(/usr/bin/curl https://${HOST}/cgi-bin/safewebdropregistration?${ID}\&REGISTRATION 2> /dev/null)
+     if (( ${#CHALLENGE} != 64 )) ; then
+          log "I-register:  no challenge -> EXIT"
+	  exit 2
+     fi
+     log "I-register:  ${ID} CHL=${CHALLENGE}"
+
+     # phase 2: create a valid request
+
+     /usr/bin/rm -f ${REQ}.hash.sig  2> /dev/null
+     # user:request
+     /usr/bin/echo -n "${ID}:" > $REQ
+     /usr/bin/echo -n "${CHALLENGE}:" >> $REQ
+
+     # generate a hash of the request
+     generate_requesthash
+     
+     # base64 encode the public key
+     base64 --wrap=0 ${KEY} > ${KEY}.b64
+     
+     # and send both, the signed request and the pubkey
+     if (( ${#SIG} > 10 )) && [[ -s ${KEY}.b64 ]] ; then
+	  REQUEST=$(/usr/bin/cat ${REQ})
+	  PUBKEY=$(/usr/bin/cat ${KEY}.b64)
+
+          RCODE=$(/usr/bin/curl https://${HOST}/cgi-bin/safewebdropregistration?${ID}\&${REQUEST}\&${SIG}\&${PUBKEY} 2> /dev/null)
+	  log "II-register : $ID: $(/usr/bin/date +'%x %X'): ${#RCODE} bytes received"
+          if [[ ${RCODE} ]] && [[ ${RCODE} != "none" ]]  ; then
+	       log "III-register:  ${RCODE}  $(/usr/bin/date +'%x %X')"
+	       /usr/bin/echo -n "${RCODE}" 
+	  else
+	       log "III-register:  failed  $(/usr/bin/date +'%x %X')"
+	  fi
+     else
+          log "II-register: no signature or ${KEY}.b64"
+     fi
+else
+     log "not enough parameter"
+     exit 1
+fi
+exit 0

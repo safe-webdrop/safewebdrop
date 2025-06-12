@@ -1,0 +1,46 @@
+############################################
+# function module for SafeWebdrop (tests)  #
+############################################
+
+RAM=../RAM
+REQ=$RAM/request
+MSG=$RAM/message
+NEW=$RAM/new
+
+#----------------------------------------------------#
+function safewebdrophash {
+     if (( ${#1} > 10 )) ; then
+          /usr/bin/echo -n "$1" | /usr/bin/sha256sum | /usr/bin/cut -c-64 
+     fi
+}
+
+function filehash {
+     if /usr/bin/ls $1  2>/dev/null > /dev/null ; then
+          /usr/bin/sha256sum $1 | /usr/bin/cut -c-64 
+     fi
+}
+
+function clean {
+     /usr/bin/rm -f ${REQ} ${REQ}.hash  ${REQ}.hash.sig 2> /dev/null
+}
+
+function generate_requesthash {
+
+     RHASH=$(safewebdrophash "$(/usr/bin/cat ${REQ})")
+     /usr/bin/echo -n ${RHASH} > ${REQ}.hash
+     ./signRSA "${PRIVSECRET}" "${REQ}.hash" "${ID}"
+     SIG=$(/usr/bin/base64 --wrap=0 ${REQ}.hash.sig)
+}
+
+function generate_message_hash { 
+
+     /usr/bin/rm -f ${NEW}.hash ${NEW}.hash.sig
+     /usr/bin/base64 --wrap=0 ${NEW} > ${NEW}.b64
+     REQ=$(/usr/bin/cat ${NEW}.b64)
+     HASH=$(/usr/bin/cat ${NEW} | /usr/bin/sha256sum | /usr/bin/cut -c-64)
+     /usr/bin/echo -n ${HASH} > ${NEW}.hash
+     ./signRSA "${PRIVSECRET}" ${NEW}.hash ${ID}
+     SIG=$(/usr/bin/base64 --wrap=0 ${NEW}.hash.sig)
+}
+
+#----------------------------------------------------#

@@ -1,0 +1,271 @@
+#!/usr/bin/bash
+
+##############################################################################
+# This file is part of the CRYPTO BONE
+# File     : safewebdropfile  (server)
+# Version  : 2.0 (ALL-IN-ONE)
+# License  : BSD-3-Clause
+# Date     : 19 Apr 2025
+# Contact  : Please send enquiries and bug-reports to innovation@senderek.ie
+#
+# Copyright (c) 2015-2025
+#	Ralf Senderek, Ireland.  All rights reserved. (https://senderek.ie)
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+# 3. All advertising materials mentioning features or use of this software
+#    must display the following acknowledgement:
+#	   This product includes software developed by Ralf Senderek.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND  ANY EXPRESS OR 
+# IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE  IMPLIED WARRANTIES 
+# OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  
+# IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, 
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; 
+# OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) 
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
+# POSSIBILITY OF SUCH DAMAGE.
+##############################################################################
+
+#----------------------------------------------------#
+# load functions and global variables
+. ./safewebdrop-functions
+
+function new_name
+{
+     # $1 : directory
+     # $2 : extension that is appended, if $2 exists
+     # $3 : PREFIX without number extension
+     NAME=""
+     LAST=""
+     typeset -i NUM=1
+     if [[ x$1 != "x" ]]
+     then
+          if [[ x$2 != "x" ]]
+	  then
+               LAST=$(/bin/ls $1/$3*.$2 2>/dev/null | /usr/bin/sort | /usr/bin/tail -1)
+	       LAST=${LAST%.$2}
+	  else
+               LAST=$(/bin/ls $1/$3* 2> /dev/null | /usr/bin/sort | /usr/bin/tail -1)
+	  fi
+          LAST=${LAST##*.}
+          LAST=${LAST#0}
+          LAST=${LAST#0}
+          LAST=${LAST#0}
+	  NUM=${LAST}
+	  NUM=${NUM}+1
+	  PRE="mail"
+	  if [[ x$3 != "x" ]]; then
+               PRE=$3
+	  fi
+          if [[ ${NUM} -lt 10 ]]
+          then
+               NAME="${PRE}.000"${NUM}
+          else
+               if [[ ${NUM} -lt 100 ]]
+               then
+                    NAME="${PRE}.00"${NUM}
+               else
+                    if [[ ${NUM} -lt 1000 ]]
+                    then
+                         NAME="${PRE}.0"${NUM}
+                    else
+                         NAME="${PRE}."${NUM}
+                    fi
+               fi
+          fi
+     fi
+     if [[ ${NUM} -eq 0 ]]
+     then
+          NAME="${PRE}.0001" 
+     fi
+     if [[ x$2 != "x" ]]
+     then
+          NAME=${NAME}.$2
+     fi
+     /usr/bin/echo ${NAME}
+}
+
+
+#----------------------------------------------------#
+
+# import config file
+if [[ -s ${DEST}/safewebdrop.config ]] ; then
+     . ${DEST}/safewebdrop.config
+fi
+
+/usr/bin/echo Content-type: text/html
+/usr/bin/echo
+
+if [[ ! ${MAX} ]] ; then
+     ## if no MAX is defined
+     MAX=500   # kilobyte
+fi
+if [[ ! ${MAXFILES} ]] ; then
+     ## if no MAXFILES is defined
+     MAXFILES=5  # all further files overwrite the last one
+fi
+
+
+if [[ ${ACCEPT_FILES} = "yes" ]]; then
+    
+     OLDIFS="${IFS}"
+     IFS=\&
+     set -- $QUERY_STRING
+     RECIPIENT=$1
+     SENDER=$2
+     MESSAGE=$3
+     HASHSIG=$4
+     NUM=$5
+     IFS=${OLDIFS}
+     # check if the recipient exists here
+     if [[ -d  ${DEST}/${RECIPIENT} ]] ; then
+          LOG=${DEST}/${RECIPIENT}/log
+          log "---- file upload $NUM ----"
+     else
+          LOG=${DEST}/admin/log
+          log "${RECIPIENT} is not registered here" 
+	  exit 5
+     fi
+     
+     if [[ "${NUM}"x != "x" ]] ; then
+          FILE=file-${SENDER}.${NUM}
+     else
+          FILE=$(new_name  "${DEST}/${RECIPIENT}" "" "file-${SENDER}")
+     fi
+     
+     #check that this is not one too many files
+     # count all files of RECIPIENT instead !!!
+     NUMFILES=$(/usr/bin/ls ${DEST}/${RECIPIENT}/file-${SENDER}* 2> /dev/null | wc -l)
+     if (( "${NUMFILES}" >= ${MAXFILES} )) ; then
+          FILE=file-${SENDER}.9999
+     fi
+     
+     # check that SENDER's public key exists
+     # check local user
+     log "looking for ${SENDER}'s pubkey"
+     PUBKEY=${DEST}/${SENDER}/pubkey.pem
+     if [[ ! -r ${PUBKEY} ]] ; then
+          log "not found as local user"
+          # check in RECIPIENT's contacts
+	  PUBKEY=${DEST}/${RECIPIENT}/contacts/${SENDER}.pubkey.pem
+	  if [[ ! -r ${PUBKEY} ]] ; then
+               # no public key available
+	       log "no public key available for ${SENDER}"
+	       exit 5
+	  fi
+     fi
+
+     log "using public key : ${PUBKEY}"
+     
+     ### log "last file ${NUM} : max number of files = ${MAXFILES}"
+     FILE=${DEST}/${RECIPIENT}/$FILE
+     log "using $FILE"
+
+     # read data 
+     /usr/bin/dd of=/tmp/file bs=1k count=${MAX} 2>/dev/null
+     
+     if [[ -r /tmp/file ]]; then
+          log "$(/usr/bin/ls -l /tmp/file)"
+          # check, if file is in OpenPGP format
+          if [[ -x /usr/bin/gpg ]] ; then
+                CHECK=$(/usr/bin/echo | /usr/bin/gpg --homedir ${DEST}/tmp /tmp/file 2>&1)
+                /usr/bin/echo -n "${CHECK}" | /usr/bin/grep "encrypted data" 2>/dev/null | /usr/bin/grep "AES" 2>/dev/null >/dev/null
+                if [[ $? -ne 0 ]] ; then
+                     rm -f ${DEST}/tmp/file 2>/dev/null
+                     log "the message is not AES encrypted data"
+                     exit 6
+		else
+		     log "attachment is AES encrypted"
+                fi
+          else	  
+                log "/usr/bin/gpg  does not exist, so the OpenPGP message cannot be checked."
+          fi
+
+          # check signature and exit if not OK
+	  NUMBER=""
+	  if [[ "${PUBKEY}x" != "x" ]] ; then
+               # the SENDER's pubkey can be used for verification
+     
+               SIGNED=${DEST}/${RECIPIENT}/signedfilehash
+               VERIFIED=${DEST}/${RECIPIENT}/verifiedfilehash
+               rm -f $SIGNED $VERIFIED
+               /usr/bin/echo -n "${HASHSIG}" | /usr/bin/base64 -d > ${SIGNED}
+               
+	       # verify the signature on the message
+               /usr/bin/openssl pkeyutl  -verifyrecover -in ${SIGNED} -keyform PEM -inkey ${PUBKEY} -pubin -out ${VERIFIED}
+               if [[ ! -s ${VERIFIED} ]] ; then
+                    log "${SENDER} : corrupt signature or RSA public key" 
+		    cleansig
+     	            exit 3
+               fi
+               SIGNEDHASH=$(cat ${VERIFIED})
+	       MESSAGEHASH=$(/usr/bin/echo -n ${MESSAGE}| /usr/bin/sha256sum | /usr/bin/cut -c-64)
+               if [[ ${SIGNEDHASH} != ${MESSAGEHASH} ]] ; then 
+                    log "signature verification failed" 
+                    cleansig
+		    exit 3
+	       fi
+
+	       # split MESSAGE into Number and Hash
+	       OLDIFS="${IFS}"
+               IFS=:
+               set -- ${MESSAGE}
+	       NUMBER=$1
+	       FILEHASH=$2
+	       IFS=${OLDIFS}
+               
+	       if [[ ${MESSAGE} ]] ; then
+                    # check if the signed filehash matches /tmp/file
+     	            HASH=$(/usr/bin/cat /tmp/file | /usr/bin/sha256sum | /usr/bin/cut -c-64) 
+                    if [[ ${HASH} != ${FILEHASH} ]] ; then
+                         log "ERROR: hashes don't match"
+                         /usr/bin/echo -n "LIMIT EXCEEDE"
+		         cleansig
+		         exit 3
+                    fi
+	       fi
+          fi
+	  cleansig
+
+          # hashes are OK
+
+          # check NUMBER in signature
+          if [[ ${NUMBER} != ${NUM} ]] ; then
+               # conflicting request
+	       log "the numbers don't match ${NUMBER} : ${NUM}"
+               exit 4
+	  fi
+
+          if [[ -d ${DEST}/${RECIPIENT} ]] && [[ -r /tmp/file ]] ; then
+               /usr/bin/mv /tmp/file ${FILE}
+	       ### log "finally: $(ls -l ${FILE})"
+	       # register in filelist
+	       ALIST=${DEST}/${RECIPIENT}/attachmentlist
+	       ATTACH=$(/usr/bin/grep Attachment ${DEST}/${RECIPIENT}/drop-${SENDER}.${NUM} 2>/dev/null)
+	       ATTACH=${ATTACH##*: }
+	       /usr/bin/echo "$(/usr/bin/date +'%x %X') : ${NUMBER}:${ATTACH}" >> ${ALIST}
+	       /usr/bin/echo -e "${NUMBER}:${ATTACH}\n.\n" >> ${FILE}
+               /usr/bin/echo -n "WEBDROP MESSAGE+ATTACHMENT SAVED"
+	       log "${FILE} stored successfully"
+	       log "--- End file upload ---"
+               exit 0
+          fi
+     fi	  
+     # no data received
+     log "No data has been stored."
+     /usr/bin/echo "failed"
+else
+    /usr/bin/echo "Config: forbidden"
+    exit 7
+fi
+
+exit 0

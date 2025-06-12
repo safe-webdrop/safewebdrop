@@ -1,0 +1,125 @@
+############################################
+# function module for SafeWebdrop (server) #
+############################################
+
+DEST="/home/safewebdrop"
+PUBKEY=""
+
+#----------------------------------------------------#
+function safewebdrophash {
+     if (( ${#1} > 10 )) ; then
+          /usr/bin/echo -n "$1" | /usr/bin/sha256sum | /usr/bin/cut -c-64 
+     fi
+}
+
+function filehash {
+     if /usr/bin/ls $1 2>/dev/null >/dev/null ; then
+          /usr/bin/sha256sum $1 | /usr/bin/cut -c-64 
+     fi
+}
+
+function log {
+     if [[ $1 ]] && [[ ${LOG} ]]; then 
+          /usr/bin/echo "$(/usr/bin/date +'%x %X'): $1" >> ${LOG}
+     fi
+}
+
+function check_userid {
+     # $1: userid
+     if [[ $1 ]]; then
+          if [[ -d $DEST/"$1" ]]; then
+	        PUBKEY=$DEST/$1/pubkey.pem
+	        if [[ ! -r "$PUBKEY" ]]; then
+                     # The pubkey for user $USER is missing.
+	             exit 3
+	        fi
+           else
+	        exit 1
+           fi
+     else
+          # userid is empty
+          exit 2
+     fi
+}
+
+function generate_challenge {
+     # sets CHALLENGE
+
+     CHALLENGE=""
+     # generate a 64 char NONCE
+     NONCE=$(/usr/bin/dd if=/dev/urandom bs=1 count=32 2>/dev/null | /usr/bin/base64 | /usr/bin/cut -c-64)
+     # generate a 64 char CHALLENGE
+     CHALLENGE=$(safewebdrophash ${NONCE})
+}
+
+function return_challenge {
+
+     # get the IP
+     IP=$REMOTE_ADDR
+     /usr/bin/touch $FILE 2> /dev/null	  
+     if [[ -w ${FILE} ]] && [[ ${IP} ]] ; then
+          echo "ADDR=${IP}" > $FILE   
+          echo "CHALLENGE=${CHALLENGE}" >> $FILE   
+	  echo -n "$CHALLENGE"
+	  # end the request
+	  exit 0
+     else
+          exit 3
+     fi
+}
+
+function cleansig {
+     /usr/bin/rm -f ${VERIFIED}
+     /usr/bin/rm -f ${SIGNED}
+}
+
+
+function verify_request {
+     # uses REQ, HASHSIG and PUBKEY 
+     # sets and removes SIGNED and VERIFIED
+
+     if [[ ! ${ID} ]]; then
+         exit 3
+     fi
+     SIGNED=${DEST}/${ID}/signedrequest
+     VERIFIED=${DEST}/${ID}/verifiedhash
+     /usr/bin/rm -f $SIGNED $VERIFIED
+
+     # verify the signature
+     /usr/bin/echo -n "${HASHSIG}" | /usr/bin/base64 -d > ${SIGNED}
+     /usr/bin/openssl pkeyutl  -verifyrecover -in ${SIGNED} -keyform PEM -inkey ${PUBKEY} -pubin -out ${VERIFIED}
+     if [[ ! -s ${VERIFIED} ]] ; then
+         log "${ID} : corrupt signature or public key" 
+	 cleansig
+	 exit 3
+     fi
+     if [[ -r  ${VERIFIED} ]]; then
+          MESSAGEHASH=$(cat ${VERIFIED})
+          # check that the signed hash matches the request
+
+          if [[ ${REQ} ]]; then
+               REQHASH=$(safewebdrophash ${REQ})
+               ### log ":${REQ}: compare $REQHASH with $MESSAGEHASH"
+	       if [[ ${REQHASH} != ${MESSAGEHASH} ]] ; then 
+                    log "signature verification failed"
+	            cleansig
+	            exit 4
+	       fi
+          fi 
+     else
+          cleansig
+          exit 3
+     fi
+}
+
+function check_user_and_challenge {
+
+     if [[ ${WID} != ${ID} ]] || [[  ${WCHL} != ${CHALLENGE} ]]  ; then
+          # request failed
+	  log "request failed $(/usr/bin/date +'%x %X')"
+          clean
+	  exit 4
+     fi
+}
+
+#----------------------------------------------------#

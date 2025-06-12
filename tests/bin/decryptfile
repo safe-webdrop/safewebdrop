@@ -1,0 +1,27 @@
+#!/usr/bin/bash
+
+if [[ -r ../safewebdrop.config ]] ; then
+    . ../safewebdrop.config
+fi
+
+if (( $# == 1 )) ; then
+    if (( $(/usr/bin/cat $1 | /usr/bin/wc -c ) > 50 )) ; then
+         if echo $1 | grep "file" 2>/dev/null >/dev/null; then
+              /usr/bin/cp $1 $1-file.asc
+	      /usr/bin/rm -f $1-file
+              /usr/bin/gpg --batch --passphrase ${SEC} $1-file.asc
+	      /usr/bin/rm -f $1-file.asc
+	      /usr/bin/ls -l ${1}* 2>/dev/null
+	 else
+              /usr/bin/cp $1 $1-message.asc
+	      /usr/bin/rm -f $1-message
+              /usr/bin/gpg --batch --passphrase ${SEC} $1-message.asc
+	      /usr/bin/rm -f $1-message.asc
+	      /usr/bin/ls -l ${1}* 2>/dev/null
+	 fi 
+    else
+        /usr/bin/echo "no PGP message"
+    fi	
+else
+    /usr/bin/echo "usage: decrypt filename"
+fi

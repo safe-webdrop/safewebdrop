@@ -1,0 +1,58 @@
+############################################
+# function module for SafeWebdrop (client) #
+############################################
+
+# ALL-IN-ONE
+
+RAM="/dev/shm/RAM"
+REQ="${RAM}/request"
+CHALLENGE=""
+
+#----------------------------------------------------#
+function safewebdrophash {
+     if (( ${#1} > 10 )) ; then
+          /usr/bin/echo -n "$1" | /usr/bin/sha256sum | /usr/bin/cut -c-64 
+     fi
+}
+
+function filehash {
+     if /usr/bin/ls $1  2>/dev/null > /dev/null ; then
+          /usr/bin/sha256sum $1 | /usr/bin/cut -c-64 
+     fi
+}
+function log {
+     if [[ $1 ]] ; then 
+          /usr/bin/echo "$(/usr/bin/date +'%x %X'): $1" >> ${RAM}/log
+          /usr/bin/chmod 600 ${RAM}/log
+     fi
+}
+
+function clean {
+     /usr/bin/rm -f ${REQ} ${REQ}.hash  ${REQ}.hash.sig 2> /dev/null
+}
+
+function generate_requesthash {
+
+     if [[ -r ${REQ} ]] ; then
+          # generate a hash of the request 
+          RHASH=$(safewebdrophash "$(/usr/bin/cat ${REQ})")
+          /usr/bin/echo -n ${RHASH} > ${REQ}.hash 
+
+          RES=$(/usr/lib/cryptobone/safewebdrop/bin/signRSA "${PASS}" "${REQ}.hash")
+          if [[ ${RES} ]]; then
+               log "signing: ${RES}"
+          fi
+
+          # base64 encode the signed hash
+          SIG=""
+          if [ -s ${REQ}.hash.sig ] ; then
+               SIG=$(/usr/bin/base64 --wrap=0 ${REQ}.hash.sig)
+          fi 
+          /usr/bin/chmod 600 ${REQ} ${REQ}.hash ${REQ}.hash.sig
+     else
+          # no valid request
+	  exit 3
+     fi
+}
+
+#----------------------------------------------------#

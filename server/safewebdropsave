@@ -1,0 +1,333 @@
+#!/usr/bin/bash
+
+##############################################################################
+# This file is part of the CRYPTO BONE
+# File     : safewebdropsave  (server)
+# Version  : 2.0 (ALL-IN-ONE)
+# License  : BSD-3-Clause
+# Date     : 19 Apr 2025
+# Contact  : Please send enquiries and bug-reports to innovation@senderek.ie
+#
+# Copyright (c) 2015-2025
+#	Ralf Senderek, Ireland.  All rights reserved. (https://senderek.ie)
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+# 3. All advertising materials mentioning features or use of this software
+#    must display the following acknowledgement:
+#	   This product includes software developed by Ralf Senderek.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND  ANY EXPRESS OR 
+# IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE  IMPLIED WARRANTIES 
+# OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  
+# IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, 
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; 
+# OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) 
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
+# POSSIBILITY OF SUCH DAMAGE.
+##############################################################################
+
+#----------------------------------------------------#
+# load functions and global variables
+. ./safewebdrop-functions
+
+function new_name
+{
+     # $1 : directory
+     # $2 : extension that is appended, if $2 exists
+     # $3 : PREFIX without number extension
+     NAME=""
+     LAST=""
+     typeset -i NUM=1
+     if [[ x$1 != "x" ]]
+     then
+          if [[ x$2 != "x" ]]
+	  then
+               LAST=$(/bin/ls $1/$3*.$2 2>/dev/null | /usr/bin/sort | /usr/bin/tail -1)
+	       LAST=${LAST%.$2}
+	  else
+               LAST=$(/bin/ls $1/$3* 2> /dev/null | /usr/bin/sort | /usr/bin/tail -1)
+	  fi
+          LAST=${LAST##*.}
+          LAST=${LAST#0}
+          LAST=${LAST#0}
+          LAST=${LAST#0}
+	  NUM=${LAST}
+	  NUM=${NUM}+1
+	  PRE="mail"
+	  if [[ x$3 != "x" ]]; then
+               PRE=$3
+	  fi
+          if [[ ${NUM} -lt 10 ]]
+          then
+               NAME="${PRE}.000"${NUM}
+          else
+               if [[ ${NUM} -lt 100 ]]
+               then
+                    NAME="${PRE}.00"${NUM}
+               else
+                    if [[ ${NUM} -lt 1000 ]]
+                    then
+                         NAME="${PRE}.0"${NUM}
+                    else
+                         NAME="${PRE}."${NUM}
+                    fi
+               fi
+          fi
+     fi
+     if [[ ${NUM} -eq 0 ]]
+     then
+          NAME="${PRE}.0001" 
+     fi
+     if [[ x$2 != "x" ]]
+     then
+          NAME=${NAME}.$2
+     fi
+     /usr/bin/echo ${NAME}
+}
+
+
+function clean {
+     /usr/bin/rm -f $SIGNED $VERIFIED
+     rm -f ${DEST}/${RECIPIENT}/recoveredmessage 2>/dev/null
+}
+
+#----------------------------------------------------#
+
+# import config file
+if [[ -s /home/safewebdrop/safewebdrop.config ]] ; then
+     . /home/safewebdrop/safewebdrop.config
+fi
+
+/usr/bin/echo Content-type: text/html
+/usr/bin/echo
+
+# find our HOST name
+HOST=${SERVER_NAME}
+
+RECIPIENT=""
+SENDER=""
+REQ=""
+# extract RECIPIENT, SENDER, base64(message) and base64(signed(hash(message)))
+OLDIFS="${IFS}"
+IFS=\&
+set -- $QUERY_STRING 
+RECIPIENT=$1
+SENDER=$2
+REQ=$3
+HASHSIG=$4
+ATTACHMENT=$5
+
+# split SENDER
+IFS=\%
+set -- $SENDER 
+SENDERID=${1}
+SENDERHOST=${2}
+IFS=${OLDIFS}
+
+# get the IP
+IP=$REMOTE_ADDR
+
+# check if the recipient exists here.
+if [[ ${RECIPIENT}  ]]; then
+    if [[ -d $DEST/${RECIPIENT} ]]; then
+         LOG=${DEST}/${RECIPIENT}/log
+         log "-------"
+    else
+         LOG=${DEST}/admin/log
+         log "${RECIPIENT} is not registered here" 
+         exit 5
+    fi 
+fi
+
+if [[ ${REQ} ]] ; then
+     # check if the request is in AES encrypted OpenPGP message format
+     CLEAR=$(/usr/bin/echo -n "${REQ}" | /usr/bin/base64 -d )
+     /usr/bin/echo -n "${CLEAR}" > ${DEST}/tmp/pgpmessage
+     # check the existence of gpg on the server, should not be necessary
+     if [[ -x /usr/bin/gpg ]] ; then
+          CHECK=$(/usr/bin/echo | /usr/bin/gpg --homedir ${DEST}/tmp ${DEST}/tmp/pgpmessage 2>&1)
+          /usr/bin/echo -n "${CHECK}" | /usr/bin/grep "encrypted data" 2>/dev/null | /usr/bin/grep "AES" 2>/dev/null >/dev/null
+          if (( $? != 0 )) ; then
+               /usr/bin/rm -f ${DEST}/tmp/pgpmessage 2>/dev/null
+               log "the message is not AES encrypted data"
+               exit 6
+          fi
+          /usr/bin/rm -f ${DEST}/tmp/pgpmessage 2>/dev/null
+     else	  
+          log "/usr/bin/gpg  does not exist, so the OpenPGP message cannot be checked."
+     fi
+else
+     log "message is empty."
+     exit 1
+fi 
+
+log "found: AES encrypted data"
+log "sender is ${SENDER}"
+
+# generate a file name
+FILE=$(new_name  "${DEST}/${RECIPIENT}" "" "drop-${SENDER}")
+FILE=${DEST}/${RECIPIENT}/${FILE}
+
+# check if SENDER's public key exists
+# first try local authenticated senders
+PUBKEY=""
+
+if [[ ${HASHSIG} ]] ; then
+     # get the sender's PUBKEY
+     if [[ ${SENDER} = *%* ]] ; then
+          # full safewebrop name with %
+          # check SENDERHOST against HOST
+	  if [[ ${SENDERHOST} = ${HOST} ]] ; then
+               # we have a local user
+               if [[ ${SENDERID} ]]; then
+                    if [[ -d ${DEST}/${SENDERID} ]]; then
+	                 PUBKEY=${DEST}/${SENDERID}/pubkey.pem
+                         if [[ ! -r ${PUBKEY} ]]; then
+                              # The pubkey for SENDER is missing.
+                              log "no pubkey for registered ${SENDERID} found. EXITING"
+	                      exit 5
+	                 fi
+                    else
+	                 # SENDERID is not registered  
+	                 log "${SENDERID} is not registered here."
+		         PUBKEY=""
+                    fi
+               fi
+          else
+               # SENDER has a cross server ID
+               log "${SENDER} has a cross server ID"
+          fi
+     else
+          # SENDER maybe a registered local user without %
+          if [[ ${SENDER} ]]; then
+               if [[ -d $DEST/${SENDER} ]]; then
+	            PUBKEY=${DEST}/${SENDER}/pubkey.pem
+	            if [[ ! -r ${PUBKEY} ]]; then
+                          # The pubkey for SENDER is missing.
+		          log "no pubkey for registered ${SENDER} found."
+	                  exit 5
+	            fi
+               else
+	            # SENDER is not registered  
+	            log "${SENDER} is not registered here."
+		    PUBKEY=""
+               fi
+          fi
+     fi 	  
+else 
+    # no HASHSIG 
+    exit 3
+fi
+
+log "local pubkey : $PUBKEY ${#PUBKEY}"
+
+
+# check if cross server messaging is allowed and a valid PUBKEY is still not found
+
+if [[ ${ACCEPT_CROSS_SERVER} = "yes" ]] && [[ ! ${PUBKEY} ]]; then
+    log "trying ${SENDER} cross server"
+    if [[ -r ${DEST}/${RECIPIENT}/contacts/${SENDER}.pubkey.pem ]]; then
+         PUBKEY="$DEST/${RECIPIENT}/contacts/${SENDER}.pubkey.pem"
+	 log "pubkey found here: ${PUBKEY}"
+    else
+	 # now check if an allowance is already stored
+         if [[ -s ${DEST}/${RECIPIENT}/contacts/${SENDER}.allow ]] ; then
+              /usr/bin/diff ${DEST}/${RECIPIENT}/contacts/${SENDER}.allow ${DEST}/${RECIPIENT}/contacts/${SENDER}.request 2>/dev/null >/dev/null
+              if (( $? == 0 )) ; then
+                   log "checking the allow file ${SENDER}.allow"
+                   log "request and allow matches for ${SENDER}. PUBKEY registered!"
+                   /usr/bin/mv ${DEST}/${RECIPIENT}/contacts/${SENDER}.pubkey.pending ${DEST}/${RECIPIENT}/contacts/${SENDER}.pubkey.pem
+              else
+                  log "request and allow DO NOT MATCH for ${SENDER}."
+              fi
+         else
+              log "no allowance for ${SENDER} yet"
+              log "pubkey for ${SENDER} not found in ${RECIPIENT}/contacts"
+	 fi
+    fi
+fi
+
+
+if [[ ${PUBKEY} ]] ; then
+     # the SENDER's pubkey can be used for verification
+
+     SIGNED=${DEST}/${RECIPIENT}/signedhash
+     VERIFIED=${DEST}/${RECIPIENT}/verifiedhash
+     /usr/bin/rm -f $SIGNED $VERIFIED
+     
+     # verify the signature
+     /usr/bin/echo -n "${HASHSIG}" | base64 -d > ${SIGNED}
+     /usr/bin/openssl pkeyutl  -verifyrecover -in ${SIGNED} -keyform PEM -inkey ${PUBKEY} -pubin -out ${VERIFIED}
+     if [[ ! -s ${VERIFIED} ]] ; then
+         log "${SENDER} : corrupt signature or RSA public key" 
+	 clean
+	 exit 3
+     fi
+     MESSAGEHASH=$(/usr/bin/cat ${VERIFIED})
+     # check if the signed hash matches the message
+
+     if [[ ${REQ} ]]; then
+          # decode the message
+          MESSAGE=$(/usr/bin/echo -n "${REQ}" | /usr/bin/base64 -d)
+	  /usr/bin/echo -n "${MESSAGE}" > ${DEST}/${RECIPIENT}/recoveredmessage
+	  # add  \n\n
+	  /usr/bin/echo >> ${DEST}/${RECIPIENT}/recoveredmessage
+	  /usr/bin/echo >> ${DEST}/${RECIPIENT}/recoveredmessage
+	  HASH=$(/usr/bin/cat ${DEST}/${RECIPIENT}/recoveredmessage | /usr/bin/sha256sum | /usr/bin/cut -c-64) 
+          if [[ "${HASH}x" = "${MESSAGEHASH}x" ]] ; then
+               /usr/bin/echo -n "${MESSAGE}" > ${FILE}
+	       /usr/bin/echo >> ${FILE}
+               log "${FILE} saved sucessfully"
+	       if [[ ${ATTACHMENT} ]] && [[ ${ATTACHMENT} != "none" ]]; then
+	            NUM=${FILE##*.}
+		    # return the Number of the stored message
+		    /usr/bin/echo -n "${NUM}"
+		    clean
+                    log "--END--"
+		    exit 0
+	       else
+                    /usr/bin/echo -n "WEBDROP MESSAGE SAVED"
+	            clean
+                    log "--END ! --"
+	            exit 0
+	       fi 
+	  else
+               log "signature verification failed."
+	       clean
+	       exit 3
+	  fi
+     fi
+fi
+clean
+
+# no local user or valid contact has been found.
+
+
+
+########################################################final
+# finally try all other senders
+if [[ ${ACCEPT_UNAUTHORIZED} = "yes" ]] ; then
+     # save a message from unauthenticated users
+     if [[ ${REQ} ]]; then
+          /usr/bin/echo -n "${REQ}" | /usr/bin/base64 -d > ${FILE}
+          log "SAVED ${FILE}"
+          /usr/bin/echo -n "SAFEWEBDROP MESSAGE SAVED"
+     fi
+else
+     LOG=${DEST}/admin/log 
+     log "forbidden unauthorized message ${#REQ} bytes from ${SENDER} for ${RECIPIENT} at $(/usr/bin/date +'%X %x')"
+     /usr/bin/echo "forbidden"
+     exit 2
+fi
+
+log "--END--"
+exit 0

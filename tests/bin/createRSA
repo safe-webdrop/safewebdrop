@@ -1,0 +1,23 @@
+#!/usr/bin/bash
+# createRSA for testing purposes
+
+if (( $# == 2 )) ; then
+     DEST="../$2/"
+     if [[ ! -d ${DEST} ]] ; then
+          /usr/bin/echo "The directory ${DEST} does not exist."
+	  exit 3
+     fi
+
+     if [[ $1 ]]; then
+          if [[ ! -r ${DEST}/private.pem ]] ; then 
+                /usr/bin/echo -e "$1\n$1" | /usr/bin/openssl genrsa  -aes256 -passout stdin -out ${DEST}/private.pem 2048 2>/dev/null
+                /usr/bin/echo -e "$1\n"   | /usr/bin/openssl rsa -in ${DEST}/private.pem -passin stdin  -pubout -out ${DEST}/pubkey.pem
+          fi
+     else
+          /usr/bin/echo "no secret available"
+     fi
+else
+     /usr/bin/echo "usage: createRSA privKeySecret USER"
+     exit 2
+fi
+exit 0

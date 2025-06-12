@@ -1,0 +1,21 @@
+#!/usr/bin/bash
+# signRSA for testing purposes
+
+if [[ -r ../safewebdrop.config ]] ; then
+    . ../safewebdrop.config
+fi
+
+if (( $# == 3 )) ; then
+     USER=$3
+fi
+
+RSADIR="../${USER}"
+if (( $# >= 2 ))
+then
+     /usr/bin/echo -e "$1\n" | /usr/bin/openssl pkeyutl -sign  -in "$2" -keyform PEM -inkey ${RSADIR}/private.pem -passin stdin -out $2.sig
+
+else
+    /usr/bin/echo "usage: signRSA privKeysecret message [USER]"
+    exit 2
+fi
+exit 0

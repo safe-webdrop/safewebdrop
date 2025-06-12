@@ -1,0 +1,149 @@
+#!/usr/bin/bash
+
+if [[ $(/usr/bin/id -u) != 0 ]]; then /usr/bin/echo "only root can do that"; exit 2; fi
+
+#***************************************************************************
+# This file is part of the CRYPTO BONE
+# File     : analysetarball 
+# Version  : 2.0 (ALL-IN-ONE)
+# License  : BSD-3-Clause
+# Date     : 29 Mar 2025
+# Contact  : Please send enquiries and bug-reports to innovation@senderek.ie
+#
+#
+# Copyright (c) 2015-2025
+#	Ralf Senderek, Ireland.  All rights reserved. (https://senderek.ie)
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+# 3. All advertising materials mentioning features or use of this software
+#    must display the following acknowledgement:
+#	   This product includes software developed by Ralf Senderek.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND  ANY EXPRESS OR 
+# IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE  IMPLIED WARRANTIES 
+# OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  
+# IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, 
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; 
+# OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) 
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
+# POSSIBILITY OF SUCH DAMAGE.
+#****************************************************************************
+
+. /usr/lib/cryptobone/safewebdrop.header
+. ${CBHOME}/safewebdrop/bin/client-functions
+
+function new_name
+{
+     # $1 : directory
+     # $2 : extension that is appended, if $2 exists
+     NAME=""
+     LAST=""
+     typeset -i NUM=1
+     if [[ $1 ]]
+     then
+          if [[ $2 ]]
+	  then
+               LAST=$(/usr/bin/ls $1/*.$2 2>/dev/null | /usr/bin/sort | /usr/bin/tail -1)
+	       LAST=${LAST%.$2}
+	  else
+               LAST=$(/usr/bin/ls $1 2> /dev/null | /usr/bin/sort | /usr/bin/tail -1)
+	  fi
+          LAST=${LAST##*.}
+          LAST=${LAST#0}
+          LAST=${LAST#0}
+          LAST=${LAST#0}
+	  NUM=${LAST}
+	  NUM=${NUM}+1
+          if ((  ${NUM} < 10 ))
+          then
+               NAME="message.000"${NUM}
+          else
+               if (( ${NUM} < 100 ))
+               then
+                    NAME="message.00"${NUM}
+               else
+                    if (( ${NUM} < 1000 ))
+                    then
+                         NAME="message.0"${NUM}
+                    else
+                         NAME="message."${NUM}
+                    fi
+               fi
+          fi
+     fi
+     if (( ${NUM} == 0 ))
+     then
+          NAME="message.0001" 
+     fi
+     if [[ $2 ]]
+     then
+          NAME=${NAME}.$2
+     fi
+     /usr/bin/echo ${NAME}
+}
+
+INFILE="$RAM/TAR/tarball.tgz"
+
+log "analysing ${INFILE}"
+
+if [ -r ${INFILE} ]; then
+    cd $RAM/TAR
+    /usr/bin/tar xzf ${INFILE}
+else
+    # nothing to analyse
+    exit 2
+fi
+
+
+# move all files into $RAM/FILES
+
+for ASC in $(/usr/bin/ls ${RAM}/TAR/file*)
+do
+    # delete last two lines
+    /usr/bin/sed -i '$d' ${ASC}
+    /usr/bin/sed -i '$d' ${ASC}
+    LASTLINE=$(/usr/bin/tail -1 ${ASC})
+    ATTACHMENTNAME=${LASTLINE##*:}
+    NUMBER=${LASTLINE%%:*}
+    ATTACHMENT=${ATTACHMENTNAME}.asc
+    if [[ ${ATTACHMENT} ]]; then
+         /usr/bin/mv ${ASC} ${RAM}/FILES/${ATTACHMENT}
+         log " ${ATTACHMENT} moved"
+         log "$(/usr/bin/ls -l ${ATTACHMENT})"
+    fi
+done
+
+# process all webdrops
+
+FILENAME=$(new_name $RAM/IN "asc")
+for DROP in $(/usr/bin/ls ${RAM}/TAR/drop*)
+do
+     # delet last line "."
+     /usr/bin/sed -i '$d' ${DROP}
+     /usr/bin/mv ${DROP} $RAM/IN/${FILENAME}
+     ${CBHOME}/safewebdrop/bin/processmessage-safewebdrop $RAM/IN/${FILENAME}
+     FILENAME=$(new_name $RAM/IN "asc")
+done
+
+# remove all stored tarballs if MAXTARBALL is exceeded
+NUM=$(/usr/bin/ls ${RAM}/tarball-* | /usr/bin/wc -l 2>/dev/null)
+if (( $NUM > $MAXTARBALL)) ; then
+     /usr/bin/rm -f ${RAM}/tarball-?*
+fi
+
+# finally move the tarball into $RAM
+/usr/bin/mv  ${INFILE} "${RAM}/tarball-$(/usr/bin/date +%y.%m.%d-%H.%M)" 2> /dev/null
+/usr/bin/chmod 600 "${RAM}/tarball-$(/usr/bin/date +%y.%m.%d-%H.%M)"
+
+exit 0
+
+#--------------------------------------------------------------#

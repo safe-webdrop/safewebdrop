@@ -1,0 +1,113 @@
+#!/usr/bin/bash
+
+##############################################################################
+# This file is part of the CRYPTO BONE
+# File     : sendcrosspermission  (client)
+# Version  : 2.0 (ALL-IN-ONE)
+# License  : BSD-3-Clause
+# Date     : 20 Apr 2025
+# Contact  : Please send enquiries and bug-reports to innovation@senderek.ie
+#
+# Copyright (c) 2015-2025
+#	Ralf Senderek, Ireland.  All rights reserved. (https://senderek.ie)
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+# 3. All advertising materials mentioning features or use of this software
+#    must display the following acknowledgement:
+#	   This product includes software developed by Ralf Senderek.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND  ANY EXPRESS OR 
+# IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE  IMPLIED WARRANTIES 
+# OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  
+# IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, 
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; 
+# OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) 
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
+# POSSIBILITY OF SUCH DAMAGE.
+##############################################################################
+
+# Parameter: 
+# $1 is the sender ID ()   
+# $2 is the sender's HOST ()   
+# $3 is the cross ID ID
+# $4 is the cross SERVER
+
+#----------------------------------------------------#
+# load functions and global variables
+. ./test-functions
+
+if [[ -r ../safewebdrop.config ]] ; then
+   . ../safewebdrop.config
+fi
+
+SENDER=${ID}
+# let parameters overwrite SENDER, HOST, CROSSID and CROSSSERVER
+if (( $# >= 4 )) ; then
+    SENDER="$1"
+    ID="$1"
+    HOST="$2"
+    CROSSID="$3"
+    CROSSSERVER="$4"
+    if (( $# == 5 )) ; then
+         DEBUG="$5"
+    fi
+fi
+
+if [[ ${DEBUG} = "yes" ]] ; then
+    set -vx; exec 2>$0.trc
+    /usr/bin/echo "debugging is ON ..."
+fi
+
+/usr/bin/echo "***** safewebdrop *****"
+/usr/bin/echo "Sending a cross server allowance from ${SENDER}%${HOST}  to ${CROSSID}%${CROSSSERVER}"
+/usr/bin/echo "The initial secret is taken from the config file!"
+/usr/bin/echo "***** ----------- *****"
+/usr/bin/echo
+/usr/bin/echo "Debug = ${DEBUG}"
+/usr/bin/echo -n "continue? "
+read REPLY
+if [[ "${REPLY}x" != "yesx" ]] ; then
+    /usr/bin/echo "exiting, yes continues here"
+    /usr/bin/echo "usage: sendcrosspermission SENDER HOST CROSSID CROSSSERVER  [[yes|no]] (overwrites config) "
+    exit 1
+fi    
+
+REQ="../${SENDER}/contactrequest"
+MSG="../${SENDER}/contactmessage"
+
+# PHASE 1: send ALLOW request
+CHALLENGE=$(/usr/bin/curl https://${HOST}/cgi-bin/safewebdroppermission?${SENDER}\&ALLOW 2>/dev/null)
+/usr/bin/echo "SERVER -> I:   CHL=${CHALLENGE}  "
+
+# PHASE 2: create a valid permission request
+/usr/bin/echo -n "${CHALLENGE}:" > ${REQ}
+/usr/bin/echo -n "${CROSSID}%${CROSSSERVER}:" >> ${REQ}
+
+# generate the hash ([[A%S, B%S2, secret]])
+/usr/bin/echo -n "${SENDER}%${HOST}:" > ${MSG}
+/usr/bin/echo -n "${CROSSID}%${CROSSSERVER}:" >> ${MSG}
+/usr/bin/echo -n "${SEC}" >> ${MSG}
+HASHVALUE=$(/usr/bin/cat ${MSG} | /usr/bin/sha256sum | /usr/bin/cut -c-64 )
+/usr/bin/echo -n "${HASHVALUE}" >> ${REQ}
+
+# generate a hash of the request 
+generate_requesthash
+# and send it
+REQUEST=$(/usr/bin/cat ${REQ})
+OK=$(/usr/bin/curl https://${HOST}/cgi-bin/safewebdroppermission?${SENDER}\&${REQUEST}\&${SIG} 2> /dev/null)
+/usr/bin/echo "SERVER -> II: ${SENDER}%${HOST}  ${#OK} bytes received"
+if [[ ${OK} = "OK" ]]  ; then
+     /usr/bin/echo "SERVER -> III: OK valid permission sent for ${CROSSID}%${CROSSSERVER}"
+fi
+
+/usr/bin/echo "----end----"
+exit 0

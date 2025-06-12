@@ -1,0 +1,192 @@
+#!/usr/bin/bash
+
+if [ $(/usr/bin/id -u) != 0 ]; then /usr/bin/echo "only root can do that"; exit 2; fi
+
+#***************************************************************************
+# This file is part of the CRYPTO BONE
+# File     : sendsafewebdrop 
+# Version  : 2.0 (ALL-IN-ONE)
+# License  : BSD-3-Clause
+# Date     : 18 Mar 2025
+# Contact  : Please send enquiries and bug-reports to innovation@senderek.ie
+#
+#
+# Copyright (c) 2015-2025
+#	Ralf Senderek, Ireland.  All rights reserved. (https://senderek.ie)
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+# 3. All advertising materials mentioning features or use of this software
+#    must display the following acknowledgement:
+#	   This product includes software developed by Ralf Senderek.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND  ANY EXPRESS OR 
+# IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE  IMPLIED WARRANTIES 
+# OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  
+# IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, 
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; 
+# OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) 
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
+# POSSIBILITY OF SUCH DAMAGE.
+#
+#****************************************************************************
+
+# sends a message out, if it is encrypted
+# Parameter
+# $1 : sender
+# $2 : recipient
+# $3 : absolute filename of an optional attachment
+
+# load functions and global variables
+. /usr/lib/cryptobone/safewebdrop.header
+. ${CBHOME}/safewebdrop/bin/client-functions
+
+PASS=$(/usr/bin/echo "get-element webdropsecret" | /usr/bin/socat -t15 - UNIX-connect:$SOCK 2> /dev/null)
+if [[ ! ${PASS} ]]; then
+    # webdropsecret is not available
+    exit 1
+fi
+
+#----------------------------------------------------#
+function looks_like_safewebdrop {
+     if [[ $1 = *%* ]] && [[ $1 != *@* ]]; then
+          return 0
+     else
+          return 1
+     fi	  
+}
+
+#----------------------------------------------------#
+if (( $# == 3 )); then
+     log "sendsafewebdrop $1 : $2 : $3"
+     SENDER="none"
+     RECIPIENT="none"
+
+     # check if the file encryptedmessage.asc is PGP-AES encryptded using claes instead of the daemon
+     if echo 00000000000000000000 | /usr/lib/cryptobone/bin/claes -decrypt ${CBHOME}/cryptobone/encryptedmessage.asc | /usr/bin/grep AES > /dev/null ; then
+
+          if looks_like_safewebdrop $1
+	  then
+               SENDER=$1
+	       if looks_like_safewebdrop $2
+	       then
+	             if [[ $3 != "none" ]] ; then
+	                  FILE="$3"
+                     else
+		          FILE="none"
+		     fi
+		     log "Attachment: $FILE"
+                     RECIPIENT="$2"
+		     # create a safe webdrop request
+		     # get SERVER from RECIPIENT
+		     OLDIFS="${IFS}"
+		     IFS=\%
+                     set -- ${RECIPIENT}
+		     ID=$1
+                     SERVER=$2
+                     set -- ${SENDER}
+		     SENDERID=$1
+		     SENDERHOST=$2
+                     IFS=${OLDIFS}
+
+		     if [[ "${SERVER}" = "${SENDERHOST}" ]]; then
+                         SENDADDR=${SENDERID}
+                     else
+                         SENDADDR=${SENDER}
+		     fi
+
+                     # generate message
+		     /usr/bin/echo  "From: ${SENDER}" > ${CBHOME}/cryptobone/message
+		     /usr/bin/echo >> ${CBHOME}/cryptobone/message
+		     /usr/bin/cat ${CBHOME}/cryptobone/encryptedmessage.asc >> ${CBHOME}/cryptobone/message
+		     if [[ "${FILE}" != "none" ]] ; then
+		          # add the filename of the attachment
+                          /usr/bin/echo "Attachment: ${SENDERID}_${FILE##*/}" >> ${CBHOME}/cryptobone/message
+		     fi
+	  	     /usr/bin/echo "." >> ${CBHOME}/cryptobone/message
+		     /usr/bin/echo   >> ${CBHOME}/cryptobone/message
+		     /usr/bin/base64 --wrap=0 ${CBHOME}/cryptobone/message > ${CBHOME}/cryptobone/message.b64
+		     /usr/bin/chmod 600 ${CBHOME}/cryptobone/message*
+		     REQ=$(/usr/bin/cat ${CBHOME}/cryptobone/message.b64)
+		     MESSAGE=$(/usr/bin/cat ${CBHOME}/cryptobone/message)
+		     HASH=$(/usr/bin/cat ${CBHOME}/cryptobone/message | /usr/bin/sha256sum | /usr/bin/cut -c-64)
+		     /usr/bin/echo -n ${HASH} > ${CBHOME}/cryptobone/message.hash
+		     log "using messagehash: ${HASH}"
+		     RES=$(${CBHOME}/safewebdrop/bin/signRSA "${PASS}" ${CBHOME}/cryptobone/message.hash)
+                     if [[ ${RES} ]]; then 
+                          log "Error signing: ${RES}" 
+			  exit 3
+                     fi
+
+		     SIG=$(/usr/bin/base64 --wrap=0 ${CBHOME}/cryptobone/message.hash.sig)
+                     RES=$(/usr/bin/curl https://${SERVER}/cgi-bin/safewebdropsave?${ID}\&${SENDADDR}\&${REQ}\&${SIG}\&${FILE} 2> /dev/null)
+		     log "RESULT 1: $RES"
+		     if [[ ${RES} ]] ; then
+		          if [[ ${FILE} != "none" ]] ; then
+                               NUM=${RES}
+			       # send the encrypted attachment
+			       if [[ -r ${CBHOME}/cryptobone/attachment.asc ]] ;then
+			            log "found ${CBHOME}/cryptobone/attachment.asc"
+			            # generate a signature of {NUM, hash(encryptedfile)}
+				    HASH=$(/usr/bin/cat ${CBHOME}/cryptobone/attachment.asc | /usr/bin/sha256sum | /usr/bin/cut -c-64)
+                                    MESSAGE=$(/usr/bin/echo -n "${NUM}:${HASH}")
+                                    /usr/bin/echo -n $(safewebdrophash ${MESSAGE}) > ${CBHOME}/cryptobone/message.hash
+                                    RES=$(${CBHOME}/safewebdrop/bin/signRSA "${PASS}" ${CBHOME}/cryptobone/message.hash)
+                                    if [[ ${RES} ]]; then 
+                                         log "Error signing: ${RES}" 
+                                         exit 3
+                                    fi
+
+                                    REQ=$(/usr/bin/cat ${MESSAGE})
+                                    SIG=$(/usr/bin/base64 --wrap=0 ${CBHOME}/cryptobone/message.hash.sig)
+			            RES=$(/usr/bin/curl https://${SERVER}/cgi-bin/safewebdropfile?${ID}\&${SENDADDR}\&${MESSAGE}\&${SIG}\&${NUM} --upload-file ${CBHOME}/cryptobone/attachment.asc)
+                                    if [[ $? != 0 ]] ; then
+                                         log "UPLOAD DENIED"
+                                         RES="ATTACHMENT EXCEEDS LIMIT"
+                                    fi
+                                    log "RESULT 2: $RES"
+                                    if [[ ${RES} = "OK" ]] ; then
+                                         /usr/bin/echo "${RES}"
+                                         log "--- End sendsafewebdrop ---"
+                                         exit 0
+                                    else
+                                         /usr/bin/echo "$RES"
+                                         log "$RES"
+                                         exit 1
+                                    fi
+			       else
+			            log "no encrypted attachment"
+			       fi
+			  else
+			       # message without attachment
+	                       /usr/bin/echo "${RES}"
+                               exit 0
+			  fi
+	             else
+		          /usr/bin/echo "failed transfer: no answer from server"
+			  exit 2
+		     fi 
+	       fi
+	       # false recipient ID
+	       /usr/bin/echo "failed recipient"
+	       exit 2
+	  fi
+	  # false sender ID
+	  /usr/bin/echo "failed sender"
+	  exit 2
+     fi
+     log "no AES encrypted data"
+     exit 3
+else
+     log "not enough parameter"
+     exit 1
+fi
+exit 0

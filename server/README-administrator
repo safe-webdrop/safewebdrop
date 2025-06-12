@@ -1,0 +1,127 @@
+Hello Administrator, 
+
+thank you for providing the SafeWebdrop service for your users on your server.
+
+After downloading the source code [ https://safewebdrop.com/code ]
+you will find the server-side bash scripts in the server directory.
+Copy or move the "safewebdrop*" scripts into your server's
+cgi-bin directory and make sure they are owned by the server UID
+(which may well be  48/apache).
+
+Move the directory "server/home/safewebdrop" into /home.
+Make sure the directory /home/safewebdrop and /home/safewebdrop/admin
+are also owned by the httpd server UID (apache) but that the script
+"accept" in /home/safewebdrop/admin is owned by user root.
+
+By now your SafeWebdrop service is installed and can be used.
+
+People using your server can now register with the Crypto Bone
+software on their computers. 
+Once registered, they will contact you with the registration code
+your server will create on registration. Have a look in the admin
+directory, you will find the user's uploaded public key and a 
+file NAME.request. Check the registration code and if it matches
+the information the user has given you first hand, then you can
+enable the user by running "./accept NAME". This script will create
+a directory for the user and copies the public key into it.
+
+That's all you have to do, everything else is done by the server
+scripts.
+
+Your involvement stops, when you have accepted a user.
+
+If you wish to dismiss a user, just remove their directory
+from the server. Nothing more needs to be done.
+
+#----------------------#
+TESTING THE SERVER scripts
+
+You can test whether or not all necessary server-side commands are in place
+with the test program check-server-utils on your server.
+
+
+To test the functionality of your service, put the files in the
+"tests" directory on any computer that can access your server via
+the internet.
+
+Here are some examples
+
+# change into the bin directory!
+# register adam and eve
+    ./registrationtest adam yourserver.com
+    ./registrationtest eve yourserver.com
+
+# to enable these two users on your server, run ./accept adam and ./accept eve in
+# the admin directory on your server in the admin directory. 
+
+# Return to your test computer
+
+# send a message from adam to eve
+    ./sendtestmessage adam yourserver.com eve yourserver.com
+
+# read all messages for eve 
+    ./gettesttarball eve yourserver.com    
+
+# you'll find the retrieved tarball  in "../eve/TAR/tarball.tgz"
+# if the tarball.tgz has more than 5 bytes (i.e. it is not empty)
+# you can analyse the content and decrypt all webdrops and attachment files
+    ls -l ../eve/TAR/tarball.tgz
+    ./analysetarball eve
+
+# send an attachment together with a message from eve back to adam
+    cp someattachmentfile ../eve
+    ./sendtestmessageandattachment eve yourserver.com adam yourserver.com someattachmentfile
+
+# download the tarball as adam
+    ./gettesttarball adam yourserver.com
+    # now analyse the tarball
+    # that extracts webdrops and attachments and decrypts them all
+    ./analysetarball adam
+    
+    ls -l ../adam/TAR
+    # you can now use or display the attachments as usual
+    # all attachment files are now in clear text, you may change their name to reflect
+    # the original filename and extension which you can find in the corresponing webdrop
+
+
+#----------------------#
+CROSS-SERVER COMMUNICATION
+
+# If a third user harry is already registered by another administrator on
+# a different server, adam can allow harry%otherserver.com to contact him:
+
+    ./sendcrosspermission adam yourserver.com harry otherserver.com
+    # as a result, you'll find a file harry%otherserver.com.allow 
+    # in adam's contacts directory
+
+# If harry replies with:
+
+    ./sendcrosscontact harry otherserver.com adam yourserver.com
+    # then harry's request meets adam's allow and harry's public key is stored in
+    # adam's contacts directory
+    # this enables secure communication from harry to adam.
+
+    # you can check this by sending:
+    ./sendtestmessage harry otherserver.com adam yourserver.com
+
+# Once harry allows adam's contact and adam requests it,
+# then both users can now communicate in the same way local users can.
+
+# If you don't want cross-server communication for your users, you can disable this
+# feature in the config file on your server.
+
+#----------------------#
+
+NOTE, that these scripts are made only to check that everything works correctly.
+Your users will use the SafeWebdrop service with the Crypto Bone GUI that handles
+secure encryption keys for your users.
+
+But of course, you can use this service for your own messaging project
+as well.
+
+If you have comments or questions you can contact me directly:
+https://senderek.ie/contact
+
+#----------------------#
+
+Thanks again for providing the SafeWebdrop service on your server.

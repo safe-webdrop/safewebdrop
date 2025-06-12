@@ -1,0 +1,154 @@
+#!/usr/bin/bash
+
+##############################################################################
+# This file is part of the CRYPTO BONE
+# File     : safewebdroppermission   (server) 
+# Version  : 2.0 (ALL-IN-ONE)
+# License  : BSD-3-Clause
+# Date     : 19 Apr 2025
+# Contact  : Please send enquiries and bug-reports to innovation@senderek.ie
+#
+# Copyright (c) 2015-2025
+#	Ralf Senderek, Ireland.  All rights reserved. (https://senderek.ie)
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+# 3. All advertising materials mentioning features or use of this software
+#    must display the following acknowledgement:
+#	   This product includes software developed by Ralf Senderek.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND  ANY EXPRESS OR 
+# IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE  IMPLIED WARRANTIES 
+# OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  
+# IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, 
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; 
+# OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) 
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
+# POSSIBILITY OF SUCH DAMAGE.
+##############################################################################
+
+#----------------------------------------------------#
+# load functions and global variables
+. ./safewebdrop-functions
+
+function clean {
+     rm -f ${FILE} 2> /dev/null
+     rm -f ${SIGNED} 2> /dev/null
+     rm -f ${VERIFIED} 2> /dev/null
+}
+#----------------------------------------------------#
+
+
+/usr/bin/echo Content-type: text/html
+/usr/bin/echo
+
+ID=""
+REQ=""
+# extract ID, REQ and HASHSIG
+OLDIFS="${IFS}"
+IFS=\&
+set -- $QUERY_STRING 
+ID=$1
+REQ=$2
+HASHSIG=$3
+IFS=${OLDIFS}
+
+# get the IP
+IP=$REMOTE_ADDR
+
+# check if a valid user exists
+check_userid ${ID}
+
+LOG=${DEST}/${ID}/log
+
+# make sure the contact directory exists and is accessible for the webserver
+if [[ ! -d  ${DEST}/${ID}/contacts ]] ; then
+     /usr/bin/mkdir -p ${DEST}/${ID}/contacts
+     /usr/bin/chown apache ${DEST}/${ID}/contacts
+fi
+
+FILE=${DEST}/${ID}/permission   # to save the state for this request
+     
+log "--- permission request ---"
+# request = ALLOW or it consists of signed data
+
+if [[ ${REQ} = "ALLOW" ]]; then
+     # phase 1
+ 
+ log "create a new safewebdrop request"
+     generate_challenge
+     return_challenge
+
+else
+     # phase 2
+     log "signed request"
+     # load the stored credentials
+     if [[ -r ${FILE} ]] ; then
+          .  ${FILE}
+     fi
+     
+     # check if new request has same ADDR
+     if [[ ${IP} != ${ADDR}  ]] ; then
+         # dismiss this request
+	 clean
+         exit 4
+     fi
+
+     # verify the signature
+     verify_request
+     # signature is OK
+
+
+     # split the  request
+     OLDIFS="${IFS}"
+     IFS=\:
+     set -- ${REQ} 
+     WCHL=$1
+     CONTACT=$2
+     CONTACTHASH=$3
+     IFS=${OLDIFS}
+
+     if [[  ${WCHL} != ${CHALLENGE} ]]  ; then
+          # request failed
+	  log "request ${WREQ} failed $(/usr/bin/date +'%x %X')"
+          clean
+	  exit 3
+     fi
+     
+     # safe the hash 
+     if (( ${#CONTACTHASH} == 64 )) ; then
+          /usr/bin/echo -n ${CONTACTHASH} > ${DEST}/${ID}/contacts/${CONTACT}.allow
+          /usr/bin/echo -n "OK"
+          log "--- end permission request ---"
+     else
+          /usr/bin/echo -n "failed"
+	  clean
+	  exit 3
+     fi
+fi     
+
+# now check if a cross server request is already stored
+if [[ -s ${DEST}/${ID}/contacts/${CONTACT}.request ]] ; then
+     /usr/bin/diff ${DEST}/${ID}/contacts/${CONTACT}.allow ${DEST}/${ID}/contacts/${CONTACT}.request 2>/dev/null >/dev/null
+     if (( $? == 0 )) ; then
+          log "checking the allow file ${CONTACT}.allow"
+          log "request and allow matches for ${CONTACT}. PUBKEY registered!"
+          /usr/bin/mv ${DEST}/${ID}/contacts/${CONTACT}.pubkey.pending ${DEST}/${ID}/contacts/${CONTACT}.pubkey.pem
+          /usr/bin/rm -f ${DEST}/${ID}/contacts/${CONTACT}.allow ${DEST}/${ID}/contacts/${CONTACT}.request 2>/dev/null >/dev/null
+     else
+          log "request and allow DO NOT MATCH for ${CONTACT}."
+     fi
+else
+     log "no request for ${CONTACT} yet"
+fi
+
+clean
+exit 0

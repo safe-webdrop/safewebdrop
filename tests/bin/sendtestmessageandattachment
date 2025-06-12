@@ -1,0 +1,150 @@
+#!/usr/bin/bash
+
+##############################################################################
+# This file is part of the CRYPTO BONE
+# File     : sendtestmessageandattachment  (client)
+# Version  : 2.0 (ALL-IN-ONE)
+# License  : BSD-3-Clause
+# Date     : 20 Apr 2025
+# Contact  : Please send enquiries and bug-reports to innovation@senderek.ie
+#
+# Copyright (c) 2015-2025
+#	Ralf Senderek, Ireland.  All rights reserved. (https://senderek.ie)
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+# 3. All advertising materials mentioning features or use of this software
+#    must display the following acknowledgement:
+#	   This product includes software developed by Ralf Senderek.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND  ANY EXPRESS OR 
+# IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE  IMPLIED WARRANTIES 
+# OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  
+# IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, 
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; 
+# OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) 
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
+# POSSIBILITY OF SUCH DAMAGE.
+##############################################################################
+
+# Parameter
+# $1 is ID name
+# $2 is ID's HOST name
+# $3 is RECIPIENT
+# $4 is RECIPIENT's SERVER name
+# $5 name of the attachment file (relative to home directory)
+# $6 overwrites DEBUG
+
+#----------------------------------------------------#
+# load functions and global variables
+. ./test-functions
+
+if [[ -r ../safewebdrop.config ]] ; then
+   . ../safewebdrop.config
+fi
+
+# let parameters overwrite ID, IDHOST,  RECIPIENT, HOST and FILENAME
+if (( $# >= 3 )) ; then
+    ID="$1"
+    IDHOST="$2"
+    RECIPIENT="$3"
+    SERVER="$4"
+    FILE=../${ID}/"$5"
+    if (( $# == 6 )) ; then
+         DEBUG="$6"
+    fi
+fi
+
+if [[ ${SERVER} = ${IDHOST} ]]; then
+    SENDADDR=${ID}
+else
+    SENDADDR=${ID}%${IDHOST}
+fi
+
+
+if [[ ${DEBUG} = "yes" ]] ; then
+    set -vx; exec 2>$0.trc
+    /usr/bin/echo "debugging is ON ..."
+fi
+
+/usr/bin/echo "***** safewebdrop *****"
+/usr/bin/echo "Sending a test message as ${ID} on ${IDHOST} to ${RECIPIENT} at ${SERVER} and attachment ${FILE}"
+/usr/bin/echo "***** ----------- *****"
+/usr/bin/echo
+/usr/bin/echo "Debug = ${DEBUG}"
+/usr/bin/echo -n "continue? "
+read REPLY
+if [[ "${REPLY}x" != "yesx" ]] ; then
+    /usr/bin/echo "exiting, yes continues here"
+    /usr/bin/echo "usage: sendtestmessage ID IDHOST RECIPIENT HOST FILE [[yes|no]] (overwrites config) "
+    exit 1
+fi    
+
+# check directory for ${ID}
+if [[ ! -d ../${ID} ]] ; then
+  /usr/bin/mkdir ../${ID}
+fi
+
+# generate a new message
+/usr/bin/echo  "Please type your message (finish with <strg>-D or EOT): "
+/usr/bin/cat > ${MSG}
+if [[ ${FILE} != "none" ]] && [[ ${FILE} ]] ; then
+    # add the filename of the attachment
+   /usr/bin/echo "Attachment: ${FILE##*/}" >>  ${MSG}  
+fi
+# encrypt the message with gpg
+if [[ -x /usr/bin/gpg ]] ; then
+     /usr/bin/rm -f ${MSG}.asc
+     /usr/bin/gpg -ca --batch --passphrase ${SEC} ${MSG}
+fi
+
+KEY="../${ID}/pubkey.pem"
+
+/usr/bin/echo  "From: ${ID}%${HOST}" > ${NEW} 
+/usr/bin/echo >> ${NEW}
+/usr/bin/cat ${MSG}.asc >> ${NEW}
+if [[ ${FILE} != "none" ]] && [[ ${FILE} ]] ; then
+    # add the filename of the attachment
+   /usr/bin/echo "Attachment: ${FILE##*/}" >>  ${NEW}
+fi
+/usr/bin/echo "." >> ${NEW}
+/usr/bin/echo   >> ${NEW}
+
+generate_message_hash
+
+/usr/bin/echo "-----------"
+/usr/bin/echo "encrypted message: "
+/usr/bin/cat ${MSG}.asc 
+/usr/bin/echo "hash of message:   "
+/usr/bin/cat ${NEW}.hash 
+/usr/bin/echo
+/usr/bin/echo "----end----"
+
+RES=$(/usr/bin/curl https://${SERVER}/cgi-bin/safewebdropsave?${RECIPIENT}\&${SENDADDR}\&${REQ}\&${SIG}\&${FILE} 2>/dev/null)
+/usr/bin/echo "SERVER -> I:  ${RES} :  ${#RES} bytes received  "
+# server has returned the number that is used to store the message
+
+NUM=${RES}
+# send the encrypted attachment
+/usr/bin/rm -f ${FILE}.asc 2>/dev/null
+/usr/bin/gpg -ca --batch --passphrase ${SEC} ${FILE}
+# generate a signature of {NUM, hash(encryptedfile)}
+HASH=$(/usr/bin/cat ${FILE}.asc | /usr/bin/sha256sum | /usr/bin/cut -c-64)
+MESSAGE=$(/usr/bin/echo -n "${NUM}:${HASH}")
+/usr/bin/echo -n $(safewebdrophash ${MESSAGE}) > ${NEW}.hash
+./signRSA "${PRIVSECRET}" ${NEW}.hash ${ID}
+SIG=$(/usr/bin/base64 --wrap=0 ${NEW}.hash.sig)
+REQ=$(/usr/bin/cat ${MESSAGE})
+RES=$(/usr/bin/curl https://${SERVER}/cgi-bin/safewebdropfile?${RECIPIENT}\&${SENDADDR}\&${MESSAGE}\&${SIG}\&${NUM} --upload-file ${FILE}.asc)
+
+/usr/bin/echo "SERVER -> II:  ${RES} :  ${#RES} bytes received  "
+
+exit 0

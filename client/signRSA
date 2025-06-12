@@ -1,0 +1,12 @@
+#!/usr/bin/bash
+
+. /usr/lib/cryptobone/safewebdrop.header
+
+RSADIR=${CBHOME}/safewebdrop
+
+if (( $# == 2 )) ; then
+     /usr/bin/echo -e "$1\n"   | /usr/bin/openssl pkeyutl -sign  -in "$2" -keyform PEM -inkey ${RSADIR}/private.pem -passin stdin -out $2.sig 2>&1
+
+else
+    /usr/bin/echo "usage: signRSA signsecret message "
+fi    

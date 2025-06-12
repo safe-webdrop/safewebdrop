@@ -1,0 +1,15 @@
+#!/usr/bin/bash
+
+. /usr/lib/cryptobone/safewebdrop.header
+
+DEST="${CBHOME}/safewebdrop"
+
+if [[ $1 ]]; then
+     if [[ ! -r ${DEST}/private.pem ]] ; then 
+          /usr/bin/echo -e "$1\n$1" | /usr/bin/openssl genrsa  -aes256 -passout stdin -out ${DEST}/private.pem 2048 2>/dev/null
+          /usr/bin/echo -e "$1\n"   | /usr/bin/openssl rsa -in ${DEST}/private.pem -passin stdin  -pubout -out ${DEST}/pubkey.pem
+     fi
+else
+     /usr/bin/echo "usage: createRSA secret"
+fi
+

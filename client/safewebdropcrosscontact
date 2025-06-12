@@ -1,0 +1,121 @@
+#!/usr/bin/bash
+
+#***************************************************************************
+# This file is part of the CRYPTO BONE
+# File     : safewebdropcrosscontact (client) 
+# Version  : 2.0 (ALL-IN-ONE)
+# License  : BSD-3-Clause
+# Date     : 16 Mar 2025
+# Contact  : Please send enquiries and bug-reports to innovation@senderek.ie
+#
+#
+# Copyright (c) 2015-2025
+#	Ralf Senderek, Ireland.  All rights reserved. (https://senderek.ie)
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+# 3. All advertising materials mentioning features or use of this software
+#    must display the following acknowledgement:
+#	   This product includes software developed by Ralf Senderek.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND  ANY EXPRESS OR 
+# IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE  IMPLIED WARRANTIES 
+# OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  
+# IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, 
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; 
+# OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) 
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
+# POSSIBILITY OF SUCH DAMAGE.
+#
+#****************************************************************************
+
+# Parameter: 
+# $1 is the sender (me%myhost.com)   
+# $2 is the cross ID ID
+# $3 is the cross SERVER
+# $4 is the SECRET, used to generate the first hashvalue
+
+
+# ID is sending a signed contact request to the cross SERVER for user IDID
+
+#----------------------------------------------------#
+# load functions and global variables
+. /usr/lib/cryptobone/safewebdrop.header
+. ${CBHOME}/safewebdrop/bin/client-functions
+
+
+REQ=$RAM/contactrequest
+MSG=$RAM/contactmessage
+
+# the following two elements are used for signing the requests
+PASS=$(/usr/bin/echo "get-element webdropsecret" | /usr/bin/socat -t15 - UNIX-connect:$SOCK 2> /dev/null)
+ID=$(/usr/bin/echo "get-element webdropuser" | /usr/bin/socat -t15 - UNIX-connect:$SOCK 2> /dev/null)
+
+SENDER="$1"   
+CONTACTID="$2"
+CONTACTHOST="$3"
+SECRET="$4"
+
+
+log "---cross contact---"
+### log "GOTTEN $1 $2 $3 $4"
+
+if (( $# == 4 )) ; then
+     if [[ ${PASS} ]] && [[ ${ID} ]] ; then
+          # phase 1: send CONTACT request
+          CHALLENGE=$(/usr/bin/curl https://${CONTACTHOST}/cgi-bin/safewebdropcrosscontact?${CONTACTID}\&CONTACT 2>/dev/null)
+          if (( ${#CHALLENGE} != 64 )) ; then
+               log "I: $CHALLENGE no challenge EXIT "
+     	       exit 2
+          fi
+          log "I:  ${ID} CHL=${CHALLENGE}" 
+
+          # phase 2: create one valid permission request
+          
+	  /usr/bin/rm -f ${REQ}.hash.sig ${MSG} 2> /dev/null
+          # user:sender:request:hashsig:sender-pubkey
+          /usr/bin/echo -n "${CHALLENGE}:" > ${REQ}
+          /usr/bin/echo -n "${SENDER}:" >> ${REQ}
+
+	  # store a different hash for B ([[B%S2, A%S, secret]])
+          /usr/bin/echo -n "${CONTACTID}%${CONTACTHOST}:" > ${MSG}
+          /usr/bin/echo -n "${SENDER}:" >> ${MSG}
+          /usr/bin/echo -n "${SECRET}" >> ${MSG}
+	  HASHVALUE=$(/usr/bin/cat ${MSG} | /usr/bin/sha256sum | /usr/bin/cut -c-64 )
+          /usr/bin/echo -n "${HASHVALUE}" >> ${REQ}
+
+          # generate a hash of the request
+          generate_requesthash
+
+          KEY=${CBHOME}/safewebdrop/pubkey.pem
+	  # base64 encode the public key
+          /usr/bin/base64 --wrap=0 ${KEY} > ${KEY}.b64
+          PUBKEY=$(/usr/bin/cat ${KEY}.b64)
+          
+	  # and send it
+          if (( ${#SIG} > 10 )) ; then
+               /usr/bin/sleep 1
+	       REQUEST=$(/usr/bin/cat ${REQ})
+               OK=$(/usr/bin/curl https://${CONTACTHOST}/cgi-bin/safewebdropcrosscontact?${CONTACTID}\&${REQUEST}\&${SIG}\&${PUBKEY} 2> /dev/null)
+     	  log "II: $ID  ${#OK} bytes received" 
+               if [[ "${OK}" = "OK" ]]  ; then
+     	            log "III: OK valid cross contact sent for ${CONTACTID}"
+     	       fi
+          else
+               log "II: no file ${MSG}"
+          fi
+     fi
+else
+     log "not enough parameter"
+     exit 1
+fi
+log "--- end cross contact ---"
+exit 0

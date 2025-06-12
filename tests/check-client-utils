@@ -1,0 +1,43 @@
+#!/usr/bin/bash
+
+# check-client-utils
+
+function red {
+     /usr/bin/echo -n -e "\033[40;31;1m${1}\033[0m"
+}
+
+function green {
+     /usr/bin/echo -n -e "\033[40;32;1m${1}\033[0m"
+}
+
+function orange {
+     /usr/bin/echo -n -e "\033[40;33;1m${1}\033[0m"
+}
+
+/usr/bin/echo
+orange "checking the required client-side programs for SafeWebdrop 2.0 ... "
+/usr/bin/echo
+
+for F in $(/usr/bin/cat client-utils.list | /usr/bin/sort)
+do
+    if [ -x $F ]  ; then
+         green "OK : "
+    else
+         red "FAILED : "
+    fi
+    echo "$F"
+done
+
+/usr/bin/echo
+orange "checking the additional programs for Crypto Bone with SafeWebdrop 2.0 ... "
+/usr/bin/echo
+
+for F in $(echo "/usr/bin/socat /usr/sbin/mkfs /usr/sbin/semodule /usr/sbin/userdel /usr/sbin/chpasswd /usr/sbin/useradd /sbin/iptables /sbin/ifconfig")
+do
+    if [ -x $F ]  ; then
+         green "OK : "
+    else
+         red "FAILED : "
+    fi
+    echo "$F"
+done

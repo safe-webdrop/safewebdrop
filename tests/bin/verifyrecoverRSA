@@ -1,0 +1,21 @@
+#!/usr/bin/bash
+# verifyrecover
+
+if [[ -r ../safewebdrop.config ]] ; then
+    . ../safewebdrop.config
+    set -vx; exec 2>$0.trc
+fi 
+
+if (( $# == 2 )) ; then
+    USER="$2"   
+fi 
+
+RSADIR="../${USER}"
+if (( $# >= 1 ))
+then
+      /usr/bin/openssl pkeyutl  -verifyrecover -in $1 -keyform PEM -inkey  ${RSADIR}/pubkey.pem -pubin -out $1.recovered
+      /usr/bin/echo "exit code: $?"
+else
+    /usr/bin/echo "usage: verifyrecoverRSA signedfile [USER]" 
+fi    
+exit 0

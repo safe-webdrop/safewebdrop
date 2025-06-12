@@ -1,0 +1,29 @@
+#!/usr/bin/bash
+
+# check-server-utils
+
+function red {
+     /usr/bin/echo -n -e "\033[40;31;1m${1}\033[0m"
+}
+
+function green {
+     /usr/bin/echo -n -e "\033[40;32;1m${1}\033[0m"
+}
+
+function orange {
+     /usr/bin/echo -n -e "\033[40;33;1m${1}\033[0m"
+}
+
+orange "checking the required server-side programs for SafeWebdrop 2.0 ... "
+/usr/bin/echo
+
+for F in $(/usr/bin/cat server-utils.list | /usr/bin/sort)
+do
+    if [ -x $F ]  ; then
+         green "OK : "
+    else
+         red "FAILED : "
+    fi
+    echo "$F"
+done
+
