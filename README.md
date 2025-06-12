@@ -36,7 +36,7 @@ This secure message exchange is provided by the SafeWebdrop software in a specif
    The administrator will then run a script that creates the user's directory and copies
    the public RSA key into it.
    The administrator's involvement ends with the registration, everything else is done by
-   the <a href="https://safewebdrop.com/code/source/safewebdrop-2.0-TAR/server">server scripts</a>.
+   the <a href="https://safewebdrop.com/source/safewebdrop-2.0-TAR/server">server scripts</a>.
    
    Once registered, the user can avail of the SafeWebdrop service as long as the admin
    does not delete their directory or RSA public key.
