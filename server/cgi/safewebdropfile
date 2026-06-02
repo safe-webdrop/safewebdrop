@@ -3,12 +3,12 @@
 ##############################################################################
 # This file is part of the CRYPTO BONE
 # File     : safewebdropfile  (server)
-# Version  : 2.0 (ALL-IN-ONE)
+# Version  : 2.2 (ALL-IN-ONE)
 # License  : BSD-3-Clause
-# Date     : 19 Apr 2025
+# Date     : 29 May 2026
 # Contact  : Please send enquiries and bug-reports to innovation@senderek.ie
 #
-# Copyright (c) 2015-2025
+# Copyright (c) 2015-2026
 #	Ralf Senderek, Ireland.  All rights reserved. (https://senderek.ie)
 #
 # Redistribution and use in source and binary forms, with or without
@@ -35,9 +35,20 @@
 # POSSIBILITY OF SUCH DAMAGE.
 ##############################################################################
 
+
 #----------------------------------------------------#
 # load functions and global variables
 . ./safewebdrop-functions
+#----------------------------------------------------#
+
+# import system config file
+if [[ -s /etc/safewebdrop.config ]] ; then
+    . /etc/safewebdrop.config
+else
+    # essential information is missing
+    echo "Please check /etc/safewebdrop.config"
+    exit 5
+fi
 
 function new_name
 {
@@ -97,10 +108,6 @@ function new_name
 
 #----------------------------------------------------#
 
-# import config file
-if [[ -s ${DEST}/safewebdrop.config ]] ; then
-     . ${DEST}/safewebdrop.config
-fi
 
 /usr/bin/echo Content-type: text/html
 /usr/bin/echo
@@ -142,10 +149,11 @@ if [[ ${ACCEPT_FILES} = "yes" ]]; then
           FILE=$(new_name  "${DEST}/${RECIPIENT}" "" "file-${SENDER}")
      fi
      
-     #check that this is not one too many files
+     # check that this is not one too many files
      # count all files of RECIPIENT instead !!!
      NUMFILES=$(/usr/bin/ls ${DEST}/${RECIPIENT}/file-${SENDER}* 2> /dev/null | wc -l)
      if (( "${NUMFILES}" >= ${MAXFILES} )) ; then
+          # this is always the last one
           FILE=file-${SENDER}.9999
      fi
      
@@ -170,7 +178,7 @@ if [[ ${ACCEPT_FILES} = "yes" ]]; then
      FILE=${DEST}/${RECIPIENT}/$FILE
      log "using $FILE"
 
-     # read data 
+     # read limited amount of data supplied by the client into /tmp
      /usr/bin/dd of=/tmp/file bs=1k count=${MAX} 2>/dev/null
      
      if [[ -r /tmp/file ]]; then
@@ -182,6 +190,8 @@ if [[ ${ACCEPT_FILES} = "yes" ]]; then
                 if [[ $? -ne 0 ]] ; then
                      rm -f ${DEST}/tmp/file 2>/dev/null
                      log "the message is not AES encrypted data"
+		     log "deleting /tmp/file"
+                     /usr/bin/rm -f /tmp/file
                      exit 6
 		else
 		     log "attachment is AES encrypted"
@@ -205,6 +215,7 @@ if [[ ${ACCEPT_FILES} = "yes" ]]; then
                if [[ ! -s ${VERIFIED} ]] ; then
                     log "${SENDER} : corrupt signature or RSA public key" 
 		    cleansig
+                    /usr/bin/rm -f /tmp/file
      	            exit 3
                fi
                SIGNEDHASH=$(cat ${VERIFIED})
@@ -212,6 +223,7 @@ if [[ ${ACCEPT_FILES} = "yes" ]]; then
                if [[ ${SIGNEDHASH} != ${MESSAGEHASH} ]] ; then 
                     log "signature verification failed" 
                     cleansig
+                    /usr/bin/rm -f /tmp/file
 		    exit 3
 	       fi
 
@@ -228,7 +240,8 @@ if [[ ${ACCEPT_FILES} = "yes" ]]; then
      	            HASH=$(/usr/bin/cat /tmp/file | /usr/bin/sha256sum | /usr/bin/cut -c-64) 
                     if [[ ${HASH} != ${FILEHASH} ]] ; then
                          log "ERROR: hashes don't match"
-                         /usr/bin/echo -n "LIMIT EXCEEDE"
+                         /usr/bin/echo -n "LIMIT EXCEEDED"
+                         /usr/bin/rm -f /tmp/file
 		         cleansig
 		         exit 3
                     fi

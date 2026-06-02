@@ -2,13 +2,13 @@
 
 ##############################################################################
 # This file is part of the CRYPTO BONE
-# File     : safewebdropgettarball  (server) 
-# Version  : 2.0 (ALL-IN-ONE)
+# File     : safewebdroppermission   (server) 
+# Version  : 2.2 (ALL-IN-ONE)
 # License  : BSD-3-Clause
-# Date     : 19 Apr 2025
+# Date     : 28 May 2026
 # Contact  : Please send enquiries and bug-reports to innovation@senderek.ie
 #
-# Copyright (c) 2015-2025
+# Copyright (c) 2015-2026
 #	Ralf Senderek, Ireland.  All rights reserved. (https://senderek.ie)
 #
 # Redistribution and use in source and binary forms, with or without
@@ -38,14 +38,17 @@
 #----------------------------------------------------#
 # load functions and global variables
 . ./safewebdrop-functions
+#----------------------------------------------------#
+
+# import system config file
+if [[ -s /etc/safewebdrop.config ]] ; then
+    . /etc/safewebdrop.config
+fi
 
 function clean {
-     rm -f ${DEST}/${ID}/attachrequest 2> /dev/null
-     rm -f ${DEST}/${ID}/received 2> /dev/null
-     rm -f ${DEST}/${ID}/signedrequest 2> /dev/null
-     rm -f ${DEST}/${ID}/verified 2> /dev/null
-     rm -f ${DEST}/${ID}/delete 2> /dev/null
-     rm -f ${DEST}/${ID}/tarfiles 2> /dev/null
+     rm -f ${FILE} 2> /dev/null
+     rm -f ${SIGNED} 2> /dev/null
+     rm -f ${VERIFIED} 2> /dev/null
 }
 #----------------------------------------------------#
 
@@ -55,7 +58,7 @@ function clean {
 
 ID=""
 REQ=""
-# extract ID  and REQ
+# extract ID, REQ and HASHSIG
 OLDIFS="${IFS}"
 IFS=\&
 set -- $QUERY_STRING 
@@ -71,28 +74,33 @@ IP=$REMOTE_ADDR
 check_userid ${ID}
 
 LOG=${DEST}/${ID}/log
-FILE=${DEST}/${ID}/attachrequest
-TARFILES=${DEST}/${ID}/tarfiles
 
-# request=NEW or it consists of signed data
-
-if [[ ${REQ} = "NEW" ]]; then
-     # phase 1
-     log "--- tarball request"
-     generate_challenge
-     return_challenge
-     exit 0
+# make sure the contact directory exists and is accessible for the webserver
+if [[ ! -d  ${DEST}/${ID}/contacts ]] ; then
+     /usr/bin/mkdir -p ${DEST}/${ID}/contacts
+     /usr/bin/chown apache ${DEST}/${ID}/contacts
 fi
 
-if [[ ${REQ} != "NEW" ]] && [[ ${REQ} ]] ; then
+FILE=${DEST}/${ID}/permission   # to save the state for this request
+     
+log "--- permission request ---"
+# request = ALLOW or it consists of signed data
 
+if [[ ${REQ} = "ALLOW" ]]; then
+     # phase 1
+ 
+ log "create a new safewebdrop request"
+     generate_challenge
+     return_challenge
+
+else
      # phase 2
-     log "signed tarball request"
+     log "signed request"
      # load the stored credentials
      if [[ -r ${FILE} ]] ; then
           .  ${FILE}
      fi
-
+     
      # check if new request has same ADDR
      if [[ ${IP} != ${ADDR}  ]] ; then
          # dismiss this request
@@ -104,58 +112,49 @@ if [[ ${REQ} != "NEW" ]] && [[ ${REQ} ]] ; then
      verify_request
      # signature is OK
 
-     # split the request
 
+     # split the  request
      OLDIFS="${IFS}"
      IFS=\:
      set -- ${REQ} 
-     WID=$1
-     WCHL=$2
-     WREQ=$3
-     # WREQ is "ALL" or "hash(tarball)"
+     WCHL=$1
+     CONTACT=$2
+     CONTACTHASH=$3
      IFS=${OLDIFS}
 
-     check_user_and_challenge
-
-     if [[ ${WREQ} = "ALL" ]] ; then
-          # check if webdrops and/or attachments are present
-	  LIST=$(/usr/bin/ls ${DEST}/${ID}/file-* ${DEST}/${ID}/drop-* 2>/dev/null)
-	  if (( ${#LIST} == 0 )) ; then
-	      # no safewebdrops or attachments for this user
-	      log "EMPTY"
-              /usr/bin/echo -n EMPTY
-	      clean
-	      exit 0
-	  else
-	      # store the list for deletion
-	      RES=$(cd ${DEST}/${ID}; /usr/bin/ls drop-* file-* 2>/dev/null)
-	      /usr/bin/echo -n $RES > ${DEST}/${ID}/deletefiles
-              RES=$(cd ${DEST}/${ID}; /usr/bin/tar czf ${TARFILES} $(/usr/bin/cat ${DEST}/${ID}/deletefiles) 2>&1 )
-              if (( $? == 0 )) ; then
-	           HASH=$(filehash ${TARFILES})
-	           /usr/bin/echo -n "HASH=${HASH}" >> $FILE 
-	           /usr/bin/cat ${TARFILES}
-		   log "tarball sent back ..."
-	           exit 0
-	      else
-	           log "Error: building a tarball."
-	      fi
-	  fi
-    
-     else
-          # check hash(tarball)
-	  if [[ ${WREQ} = ${HASH} ]] ; then
-	       # remove transferred files
-               RES=$(cd ${DEST}/${ID}; /usr/bin/rm -f $(/usr/bin/cat ${DEST}/${ID}/deletefiles) > /dev/null 2> /dev/null)
-	       clean
-	       log "transferred tarfile deleted"
-	       /usr/bin/echo -n "OK"
-	  else
-	       clean
-               /usr/bin/echo -n "hash failed."
-	       log "hash failed - files remain" 
-	  fi
+     if [[  ${WCHL} != ${CHALLENGE} ]]  ; then
+          # request failed
+	  log "request ${WREQ} failed $(/usr/bin/date +'%x %X')"
+          clean
+	  exit 3
      fi
-     exit 0 
+     
+     # safe the hash 
+     if (( ${#CONTACTHASH} == 64 )) ; then
+          /usr/bin/echo -n ${CONTACTHASH} > ${DEST}/${ID}/contacts/${CONTACT}.allow
+          /usr/bin/echo -n "OK"
+          log "--- end permission request ---"
+     else
+          /usr/bin/echo -n "failed"
+	  clean
+	  exit 3
+     fi
 fi     
+
+# now check if a cross server request is already stored
+if [[ -s ${DEST}/${ID}/contacts/${CONTACT}.request ]] ; then
+     /usr/bin/diff ${DEST}/${ID}/contacts/${CONTACT}.allow ${DEST}/${ID}/contacts/${CONTACT}.request 2>/dev/null >/dev/null
+     if (( $? == 0 )) ; then
+          log "checking the allow file ${CONTACT}.allow"
+          log "request and allow matches for ${CONTACT}. PUBKEY registered!"
+          /usr/bin/mv ${DEST}/${ID}/contacts/${CONTACT}.pubkey.pending ${DEST}/${ID}/contacts/${CONTACT}.pubkey.pem
+          /usr/bin/rm -f ${DEST}/${ID}/contacts/${CONTACT}.allow ${DEST}/${ID}/contacts/${CONTACT}.request 2>/dev/null >/dev/null
+     else
+          log "request and allow DO NOT MATCH for ${CONTACT}."
+     fi
+else
+     log "no request for ${CONTACT} yet"
+fi
+
+clean
 exit 0

@@ -3,12 +3,12 @@
 ##############################################################################
 # This file is part of the CRYPTO BONE
 # File     : safewebdropsave  (server)
-# Version  : 2.0 (ALL-IN-ONE)
+# Version  : 2.2 (ALL-IN-ONE)
 # License  : BSD-3-Clause
-# Date     : 19 Apr 2025
+# Date     : 29 May 2026
 # Contact  : Please send enquiries and bug-reports to innovation@senderek.ie
 #
-# Copyright (c) 2015-2025
+# Copyright (c) 2015-2026
 #	Ralf Senderek, Ireland.  All rights reserved. (https://senderek.ie)
 #
 # Redistribution and use in source and binary forms, with or without
@@ -38,6 +38,14 @@
 #----------------------------------------------------#
 # load functions and global variables
 . ./safewebdrop-functions
+#----------------------------------------------------#
+
+# import system config file
+if [[ -s /etc/safewebdrop.config ]] ; then
+     . /etc/safewebdrop.config
+else
+     DEST="/var/safewebdrop"
+fi
 
 function new_name
 {
@@ -102,10 +110,6 @@ function clean {
 
 #----------------------------------------------------#
 
-# import config file
-if [[ -s /home/safewebdrop/safewebdrop.config ]] ; then
-     . /home/safewebdrop/safewebdrop.config
-fi
 
 /usr/bin/echo Content-type: text/html
 /usr/bin/echo
@@ -133,11 +137,11 @@ SENDERID=${1}
 SENDERHOST=${2}
 IFS=${OLDIFS}
 
-# get the IP
+# get the client's IP
 IP=$REMOTE_ADDR
 
 # check if the recipient exists here.
-if [[ ${RECIPIENT}  ]]; then
+if [[ ${RECIPIENT} ]]; then
     if [[ -d $DEST/${RECIPIENT} ]]; then
          LOG=${DEST}/${RECIPIENT}/log
          log "-------"
@@ -173,16 +177,16 @@ fi
 log "found: AES encrypted data"
 log "sender is ${SENDER}"
 
-# generate a file name
+# generate a new file name
 FILE=$(new_name  "${DEST}/${RECIPIENT}" "" "drop-${SENDER}")
 FILE=${DEST}/${RECIPIENT}/${FILE}
 
-# check if SENDER's public key exists
+# check if SENDER's public key exists on this server
 # first try local authenticated senders
 PUBKEY=""
 
 if [[ ${HASHSIG} ]] ; then
-     # get the sender's PUBKEY
+     # get the sender's PUBKEY, needed to verify the request
      if [[ ${SENDER} = *%* ]] ; then
           # full safewebrop name with %
           # check SENDERHOST against HOST
@@ -224,7 +228,7 @@ if [[ ${HASHSIG} ]] ; then
           fi
      fi 	  
 else 
-    # no HASHSIG 
+    # no HASHSIG, request cannot be verified
     exit 3
 fi
 
@@ -237,7 +241,7 @@ if [[ ${ACCEPT_CROSS_SERVER} = "yes" ]] && [[ ! ${PUBKEY} ]]; then
     log "trying ${SENDER} cross server"
     if [[ -r ${DEST}/${RECIPIENT}/contacts/${SENDER}.pubkey.pem ]]; then
          PUBKEY="$DEST/${RECIPIENT}/contacts/${SENDER}.pubkey.pem"
-	 log "pubkey found here: ${PUBKEY}"
+	 log "sender's pubkey found here: ${PUBKEY}"
     else
 	 # now check if an allowance is already stored
          if [[ -s ${DEST}/${RECIPIENT}/contacts/${SENDER}.allow ]] ; then
@@ -248,14 +252,17 @@ if [[ ${ACCEPT_CROSS_SERVER} = "yes" ]] && [[ ! ${PUBKEY} ]]; then
                    /usr/bin/mv ${DEST}/${RECIPIENT}/contacts/${SENDER}.pubkey.pending ${DEST}/${RECIPIENT}/contacts/${SENDER}.pubkey.pem
               else
                   log "request and allow DO NOT MATCH for ${SENDER}."
+		  exit 2
               fi
          else
               log "no allowance for ${SENDER} yet"
               log "pubkey for ${SENDER} not found in ${RECIPIENT}/contacts"
+              exit 2
 	 fi
     fi
 fi
 
+# once a PUBKEY is found, proceed as normal
 
 if [[ ${PUBKEY} ]] ; then
      # the SENDER's pubkey can be used for verification
@@ -276,7 +283,7 @@ if [[ ${PUBKEY} ]] ; then
      # check if the signed hash matches the message
 
      if [[ ${REQ} ]]; then
-          # decode the message
+          # decode the message from base64 encoded request
           MESSAGE=$(/usr/bin/echo -n "${REQ}" | /usr/bin/base64 -d)
 	  /usr/bin/echo -n "${MESSAGE}" > ${DEST}/${RECIPIENT}/recoveredmessage
 	  # add  \n\n
@@ -319,7 +326,7 @@ if [[ ${ACCEPT_UNAUTHORIZED} = "yes" ]] ; then
      # save a message from unauthenticated users
      if [[ ${REQ} ]]; then
           /usr/bin/echo -n "${REQ}" | /usr/bin/base64 -d > ${FILE}
-          log "SAVED ${FILE}"
+          log "SAVED ${FILE} fom anonymous user"
           /usr/bin/echo -n "SAFEWEBDROP MESSAGE SAVED"
      fi
 else

@@ -1,14 +1,14 @@
-#!/usr/bin/bash
+#!/bin/bash
 
 ##############################################################################
 # This file is part of the CRYPTO BONE
 # File     : safewebdropcrosscontact   (server) 
-# Version  : 2.0 (ALL-IN-ONE)
+# Version  : 2.2 (ALL-IN-ONE)
 # License  : BSD-3-clause
-# Date     : 19 Apr 2025
+# Date     : 28 May 2026
 # Contact  : Please send enquiries and bug-reports to innovation@senderek.ie
 #
-# Copyright (c) 2015-2025
+# Copyright (c) 2015-2026
 #	Ralf Senderek, Ireland.  All rights reserved. (https://senderek.ie)
 #
 # Redistribution and use in source and binary forms, with or without
@@ -39,6 +39,12 @@
 #----------------------------------------------------#
 # load functions and global variables
 . ./safewebdrop-functions
+#----------------------------------------------------#
+
+# import system config file
+if [[ -s /etc/safewebdrop.config ]] ; then
+    . /etc/safewebdrop.config
+fi
 
 function clean {
      rm -f ${FILE} 2> /dev/null

@@ -3,12 +3,12 @@
 ##############################################################################
 # This file is part of the CRYPTO BONE
 # File     : safewebdropregistration (server) 
-# Version  : 2.0 (ALL-IN-ONE)
+# Version  : 2.2 (ALL-IN-ONE)
 # License  : BSD-3-Clause
-# Date     : 19 Apr 2025
+# Date     : 29 May 2026
 # Contact  : Please send enquiries and bug-reports to innovation@senderek.ie
 #
-# Copyright (c) 2015-2025
+# Copyright (c) 2015-2026
 #	Ralf Senderek, Ireland.  All rights reserved. (https://senderek.ie)
 #
 # Redistribution and use in source and binary forms, with or without
@@ -41,13 +41,23 @@ ID=""
 REQ=""
 KEY=""
 
+
 #----------------------------------------------------#
 # load functions and global variables
 . ./safewebdrop-functions
 #----------------------------------------------------#
 
-DEST="/home/safewebdrop/admin"
+# import system config file
+if [[ -s /etc/safewebdrop.config ]] ; then
+    . /etc/safewebdrop.config
+else
+     DEST="/var/safewebdrop"
+fi
+
+
+DEST="${DEST}/admin"
 LOG=${DEST}/log
+
 
 if [[ ! -d ${DEST} ]] ; then
      /usr/bin/echo "CONFIGURATION ERROR: the admin directory ${DEST} does not exist." | mail ${ADMINNAME}
@@ -69,7 +79,7 @@ HASHSIG=$3
 KEY=$4
 IFS=${OLDIFS}
 
-# get the IP
+# get the client's IP
 IP=$REMOTE_ADDR
 
 if [[ ! ${ID} ]]; then
@@ -77,7 +87,9 @@ if [[ ! ${ID} ]]; then
     log "No user ID in registration. Exiting ..."
     exit 2 
 fi
-if [[ ${ID} = admin* ]] ;then 
+if [[ ${ID} = admin* ]] ;then
+    # forbidden
+    log "someone (${IP}) wants to register ${ID}"
     exit 2
 fi
 
@@ -89,13 +101,15 @@ if [[ ${REQ} = "REGISTRATION" ]]; then
      # phase 1
      generate_challenge     
 
+     # log the registration information in ${FILE}, overwrite any existing registration
+     # so only the last one is valid
      /usr/bin/touch ${FILE} >/dev/null 2>/dev/null
      if [[ -r ${FILE} ]] ; then 
           /usr/bin/echo "ID=${ID}" > $FILE
 	  /usr/bin/echo "ADDR=${IP}" >> $FILE   
           /usr/bin/echo "NONCE=${NONCE}" >> $FILE   
           /usr/bin/echo "CHALLENGE=${CHALLENGE}" >> $FILE   
-	  log "providing a challenge for ${ID}"
+	  log "providing a challenge for ${ID} for registration."
 	  /usr/bin/echo -n "${CHALLENGE}"
 	  exit 0
      fi
@@ -108,47 +122,58 @@ if [[ ${REQ} != "REGISTRATION" ]] ; then
      # load the stored credentials
      if [[ -r ${FILE} ]] ; then
           .  ${FILE}
+     else
+          # no previous registration information is available
+	  log "false request for ${ID} at IP :${IP}"
      fi
 
-     # check if the new request has the same ADDR
+     # check if the new request has the same ADDR as in the stored registration information
      if [[ ${IP} != ${ADDR}  ]] ; then
          # dismiss this request
-	 clean
          log "different IP in phase 2 for user ${ID}"
          exit 4
      fi
 
+     # save the user's PUBKEY in the admin directory
      PUBKEY=${DEST}/${ID}.pubkey.pem
-     # store the pubkey first
+     # store the new pubkey first, before the request is verified
      /usr/bin/echo -n "${KEY}" | /usr/bin/base64 -d > ${PUBKEY}
      
+     # the tmp directory is used for verification, as no user directory exists at this point
      /usr/bin/ln -s ../tmp ${DEST}/${ID}
-     verify_request
-     rm -f ${DEST}/${ID}
-     log "verification of signed request succeeded"
+     if verify_request ; then
+          rm -f ${DEST}/${ID}
+          log "verification of signed request succeeded"
 
-     # split the request
-     OLDIFS="${IFS}"
-     IFS=\:
-     set -- ${REQ} 
-     WID=$1
-     WCHL=$2
-     IFS=${OLDIFS}
+          # split the request
+          OLDIFS="${IFS}"
+          IFS=\:
+          set -- ${REQ} 
+          WID=$1
+          WCHL=$2
+          IFS=${OLDIFS}
 
-     if [[ ${WID} != ${ID} ]] || [[  ${WCHL} != ${CHALLENGE} ]]  ; then
-          # request failed
-	  log "registration failed for user ${ID}"
-	  /usr/bin/echo "none"
-          cleansig
+          if [[ ${WID} != ${ID} ]] || [[  ${WCHL} != ${CHALLENGE} ]]  ; then
+               # request failed
+	       log "registration failed for user ${ID}"
+	       /usr/bin/echo "none"
+               cleansig
+               rm -f ${DEST}/${ID}
+	       exit 3
+          fi
+
+          # create a registration code and store it
+          REGCODE=$(/usr/bin/dd if=/dev/urandom bs=1 count=20 2>/dev/null | /usr/bin/base64 | /usr/bin/cut -c-20 )
+          /usr/bin/echo "REGCODE=${REGCODE}" >> $FILE 
+          log "registration succeeded for user ${ID}"
+          log "--- registration end ---"
+          /usr/bin/echo -n ${REGCODE}
+     else
+          rm -f ${DEST}/${ID}
+          # no valid request, log and be silent to give no indication of failure
+	  log "registration failed for user ${ID} : corrupt/invalid request."
 	  exit 3
      fi
-
-     # create a registration code and store it
-     REGCODE=$(/usr/bin/dd if=/dev/urandom bs=1 count=20 2>/dev/null | /usr/bin/base64 | /usr/bin/cut -c-20 )
-     /usr/bin/echo "REGCODE=${REGCODE}" >> $FILE 
-     log "registration succeeded for user ${ID}"
-     log "--- registration end ---"
-     /usr/bin/echo -n ${REGCODE}
 fi     
 
 cleansig
