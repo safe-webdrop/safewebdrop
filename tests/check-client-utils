@@ -15,7 +15,7 @@ function orange {
 }
 
 /usr/bin/echo
-orange "checking the required client-side programs for SafeWebdrop 2.0 ... "
+orange "checking the required client-side programs for SafeWebdrop 2.2 ... "
 /usr/bin/echo
 
 for F in $(/usr/bin/cat client-utils.list | /usr/bin/sort)
@@ -29,7 +29,7 @@ do
 done
 
 /usr/bin/echo
-orange "checking the additional programs for Crypto Bone with SafeWebdrop 2.0 ... "
+orange "checking the additional programs for Crypto Bone with SafeWebdrop 2.2 ... "
 /usr/bin/echo
 
 for F in $(echo "/usr/bin/socat /usr/sbin/mkfs /usr/sbin/semodule /usr/sbin/userdel /usr/sbin/chpasswd /usr/sbin/useradd /sbin/iptables /sbin/ifconfig")

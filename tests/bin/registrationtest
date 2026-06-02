@@ -3,12 +3,12 @@
 ##############################################################################
 # This file is part of the CRYPTO BONE
 # File     : registrationtest  (client)
-# Version  : 2.0 (ALL-IN-ONE)
+# Version  : 2.2 (ALL-IN-ONE)
 # License  : BSD-3-Clause
-# Date     : 20 April 2025
+# Date     : 28 May 2026
 # Contact  : Please send enquiries and bug-reports to innovation@senderek.ie
 #
-# Copyright (c) 2015-2025
+# Copyright (c) 2015-2026
 #	Ralf Senderek, Ireland.  All rights reserved. (https://senderek.ie)
 #
 # Redistribution and use in source and binary forms, with or without
@@ -47,6 +47,11 @@
 if [[ -r ../safewebdrop.config ]] ; then
    . ../safewebdrop.config
 fi
+
+if [[ ! -d ../RAM ]] ; then
+   mkdir  ../RAM
+fi
+
 
 # let parameters overwrite ID and HOST
 if (( $# >= 2 )) ; then
