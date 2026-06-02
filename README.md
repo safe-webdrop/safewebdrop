@@ -25,7 +25,7 @@ This secure message exchange is provided by the SafeWebdrop software in a specif
 
 *  Providing the SafeWebdrop service on a https-enabled server should be <b>non-invasive</b>.
    That means, it must not be necessary to have people, using the service, introduced as users on the server.
-   Unlike ssh the SafeWebdrop service creates only a single directory /home/safewebdrop/username,
+   Unlike ssh the SafeWebdrop service creates only a single directory /var/safewebdrop/username,
    nothing else.
 
 *  Every user is enabled only <b>if an administrator accepts a user's public RSA key</b> that
@@ -36,7 +36,7 @@ This secure message exchange is provided by the SafeWebdrop software in a specif
    The administrator will then run a script that creates the user's directory and copies
    the public RSA key into it.
    The administrator's involvement ends with the registration, everything else is done by
-   the <a href="https://safewebdrop.com/source/safewebdrop-2.0-TAR/server">server scripts</a>.
+   the <a href="https://safewebdrop.com/source/safewebdrop-2.2/server">server scripts</a>.
    
    Once registered, the user can avail of the SafeWebdrop service as long as the admin
    does not delete their directory or RSA public key.
@@ -51,7 +51,7 @@ This secure message exchange is provided by the SafeWebdrop software in a specif
 *  All interactions with the server (reading, writing, deleting) require that the requests
    being sent to the server are <b>signed with the user's corresponding RSA private key</b>,
    which is stored (and protected) on the user's endpoint device. The SafeWebdrop
-   <a href="https://safewebdrop.com/source/safewebdrop-2.0-TAR/client">client scripts</a> 
+   <a href="https://safewebdrop.com/source/safewebdrop-2.2/client">client scripts</a> 
    take care of this.
 
 *  If (and only if) the administrator of a SafeWebdrop service allows message exchange
@@ -76,7 +76,7 @@ a single directory /home/safewebdrop.
 You can test whether or not all necessary server-side commands are already in place
 with the test program check-server-utils on your server. And you'll find examples
 and advice how to test the functionality of the server-side code on your own server 
-with these <a href="https://safewebdrop.com/source/safewebdrop-2.0-TAR/tests">test scripts</a>. 
+with these <a href="https://safewebdrop.com/source/safewebdrop-2.2/tests">test scripts</a>. 
 
 ## Using SafeWebdrop Exchange for Your Own Project
 
